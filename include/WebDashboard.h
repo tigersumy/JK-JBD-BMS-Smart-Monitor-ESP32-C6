@@ -347,6 +347,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
     let currentLang = localStorage.getItem('lang') || 'uk';
     let updatingSw = false;
+    let lastSwitchActionTime = {
+      charging: 0,
+      discharging: 0,
+      balancer: 0
+    };
     let renderedCellCount = 0;
     let lastData = null;
 
@@ -535,13 +540,6 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         }
       }
     }
-
-    let updatingSw = false;
-    let lastSwitchActionTime = {
-      charging: 0,
-      discharging: 0,
-      balancer: 0
-    };
 
     async function fetchData() {
       try {
