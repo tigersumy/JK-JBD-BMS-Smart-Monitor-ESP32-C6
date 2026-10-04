@@ -498,90 +498,92 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         document.getElementById('val-wifi-rssi').textContent = data.wifi_rssi + ' dBm';
       }
 
+      // Update switches ONLY if user is not currently toggling
+      const nowTs = Date.now();
+      const swCharge = document.getElementById('sw-charge');
+      const swDischarge = document.getElementById('sw-discharge');
+      const swBalancer = document.getElementById('sw-balancer');
+
+      if (!updatingSw) {
+        if (swCharge && (nowTs - lastSwitchActionTime.charging > 2500)) {
+          swCharge.checked = !!data.switch_charging;
+        }
+        if (swDischarge && (nowTs - lastSwitchActionTime.discharging > 2500)) {
+          swDischarge.checked = !!data.switch_discharging;
+        }
+        if (swBalancer && (nowTs - lastSwitchActionTime.balancer > 2500)) {
+          swBalancer.checked = !!data.switch_balancer;
+        }
+      }
+
+      // Dynamic adaptation for JBD (passive auto) vs JK (active manual)
+      const isJbd = (data.bms_type === 'JBD-BMS');
+      const balTitle = document.getElementById('lbl-bal-title');
+      const balDesc = document.getElementById('lbl-bal-desc');
+
+      if (balTitle && balDesc && swBalancer) {
+        if (isJbd) {
+          balTitle.textContent = (currentLang === 'uk') ? '⚖️ Балансування (Пасивне)' : '⚖️ Balancing (Passive)';
+          balDesc.textContent = data.balancing_active ? 
+            ((currentLang === 'uk') ? '🟢 Балансування активне' : '🟢 Equalizing Active') :
+            ((currentLang === 'uk') ? 'Автоматично за порогом V' : 'Automatic V threshold');
+          swBalancer.disabled = true;
+        } else {
+          balTitle.textContent = (currentLang === 'uk') ? '⚖️ Активний балансир' : '⚖️ Active Balancer';
+          balDesc.textContent = (currentLang === 'uk') ? 'Вирівнювання комірок' : 'Cell voltage equalization';
+          swBalancer.disabled = false;
+        }
+      }
+    }
+
+    let updatingSw = false;
     let lastSwitchActionTime = {
       charging: 0,
       discharging: 0,
       balancer: 0
     };
 
-    // Update switches only if not recently toggled by user
-    const nowTs = Date.now();
-    const swCharge = document.getElementById('sw-charge');
-    const swDischarge = document.getElementById('sw-discharge');
-    const swBalancer = document.getElementById('sw-balancer');
-
-    if (swCharge && nowTs - lastSwitchActionTime.charging > 3500) {
-      swCharge.checked = !!data.switch_charging;
-    }
-    if (swDischarge && nowTs - lastSwitchActionTime.discharging > 3500) {
-      swDischarge.checked = !!data.switch_discharging;
-    }
-    if (swBalancer && nowTs - lastSwitchActionTime.balancer > 3500) {
-      swBalancer.checked = !!data.switch_balancer;
-    }
-
-    // Dynamic adaptation for JBD (passive auto) vs JK (active manual)
-    const isJbd = (data.bms_type === 'JBD-BMS');
-    const balTitle = document.getElementById('lbl-bal-title');
-    const balDesc = document.getElementById('lbl-bal-desc');
-
-    if (balTitle && balDesc && swBalancer) {
-      if (isJbd) {
-        balTitle.textContent = (currentLang === 'uk') ? '⚖️ Балансування (Пасивне)' : '⚖️ Balancing (Passive)';
-        balDesc.textContent = data.balancing_active ? 
-          ((currentLang === 'uk') ? '🟢 Балансування активне' : '🟢 Equalizing Active') :
-          ((currentLang === 'uk') ? 'Автоматично за порогом V' : 'Automatic V threshold');
-        swBalancer.disabled = true;
-      } else {
-        balTitle.textContent = (currentLang === 'uk') ? '⚖️ Активний балансир' : '⚖️ Active Balancer';
-        balDesc.textContent = (currentLang === 'uk') ? 'Вирівнювання комірок' : 'Cell voltage equalization';
-        swBalancer.disabled = false;
-      }
-    }
-  }
-
-  async function fetchData() {
-    try {
-      const res = await fetch('/api/data');
-      if (res.ok) {
-        const json = await res.json();
-        updateUi(json);
-      }
-    } catch (e) {
-      document.getElementById('status-dot').className = 'dot';
-      document.getElementById('status-text').textContent = t('st_server_err');
-    }
-  }
-
-  async function toggleSw(swType, state) {
-    if (swType === 'balancer' && lastData && lastData.bms_type === 'JBD-BMS') {
-      return; // JBD BMS passive balancer is managed by BMS hardware thresholds automatically
-    }
-    lastSwitchActionTime[swType] = Date.now();
-    try {
-      const res = await fetch('/api/switch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ switch: swType, state: state })
-      });
-      const respJson = await res.json();
-      if (respJson && respJson.status === 'ok') {
-        if (lastData) {
-          if (swType === 'charging') lastData.switch_charging = state;
-          if (swType === 'discharging') lastData.switch_discharging = state;
-          if (swType === 'balancer') lastData.switch_balancer = state;
+    async function fetchData() {
+      try {
+        const res = await fetch('/api/data');
+        if (res.ok) {
+          const json = await res.json();
+          updateUi(json);
         }
-      } else {
-        // Revert switch on failure
-        lastSwitchActionTime[swType] = 0;
-        fetchData();
+      } catch (e) {
+        document.getElementById('status-dot').className = 'dot';
+        document.getElementById('status-text').textContent = t('st_server_err');
       }
-    } catch(e) {
-      console.error(e);
-      lastSwitchActionTime[swType] = 0;
-      fetchData();
     }
-  }
+
+    async function toggleSw(swType, state) {
+      if (swType === 'balancer' && lastData && lastData.bms_type === 'JBD-BMS') {
+        return; // JBD BMS passive balancer is managed by BMS hardware thresholds automatically
+      }
+      updatingSw = true;
+      lastSwitchActionTime[swType] = Date.now();
+      try {
+        const res = await fetch('/api/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ switch: swType, state: state })
+        });
+        const respJson = await res.json();
+        if (respJson && respJson.status === 'ok') {
+          if (lastData) {
+            if (swType === 'charging') lastData.switch_charging = state;
+            if (swType === 'discharging') lastData.switch_discharging = state;
+            if (swType === 'balancer') lastData.switch_balancer = state;
+          }
+        }
+      } catch(e) {
+        console.error(e);
+      }
+      setTimeout(() => { 
+        updatingSw = false; 
+        fetchData(); 
+      }, 1500);
+    }
 
     async function changeCells(num) {
       try {
@@ -597,7 +599,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
 
     setLang(currentLang);
-    setInterval(fetchData, 1200);
+    setInterval(fetchData, 1500);
     fetchData();
   </script>
 </body>

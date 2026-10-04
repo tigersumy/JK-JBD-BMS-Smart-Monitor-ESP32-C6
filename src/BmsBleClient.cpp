@@ -146,9 +146,14 @@ void BmsBleClient::loop() {
         m_lastConnectAttempt = now;
 
         if (m_config.bms_mac.length() > 0) {
-            NimBLEAddress targetAddr(std::string(m_config.bms_mac.c_str()), BLE_ADDR_PUBLIC);
+            unsigned int firstByte = 0;
+            sscanf(m_config.bms_mac.c_str(), "%02x", &firstByte);
+            uint8_t primaryType = ((firstByte & 0xC0) == 0xC0) ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
+            uint8_t secondaryType = (primaryType == BLE_ADDR_PUBLIC) ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
+
+            NimBLEAddress targetAddr(std::string(m_config.bms_mac.c_str()), primaryType);
             if (!connectToDevice(targetAddr, m_config.bms_name, m_config.bms_type)) {
-                NimBLEAddress altAddr(std::string(m_config.bms_mac.c_str()), BLE_ADDR_RANDOM);
+                NimBLEAddress altAddr(std::string(m_config.bms_mac.c_str()), secondaryType);
                 connectToDevice(altAddr, m_config.bms_name, m_config.bms_type);
             }
         } else {
@@ -192,15 +197,12 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
     Serial.printf("[BLE] Attempting connection to %s (type: %d, name: %s)...\n", 
                   address.toString().c_str(), address.getType(), name.c_str());
 
-    if (m_pClient != nullptr) {
-        NimBLEDevice::deleteClient(m_pClient);
-        m_pClient = nullptr;
+    if (m_pClient == nullptr) {
+        m_pClient = NimBLEDevice::createClient();
+        m_pClient->setClientCallbacks(new BmsClientCallbacks(), false);
+        m_pClient->setConnectionParams(12, 12, 0, 200);
+        m_pClient->setConnectTimeout(6000);
     }
-
-    m_pClient = NimBLEDevice::createClient();
-    m_pClient->setClientCallbacks(new BmsClientCallbacks());
-    m_pClient->setConnectionParams(24, 40, 0, 500); // 5.0s supervision timeout
-    m_pClient->setConnectTimeout(6000); // 6000 ms in NimBLE 2.x
 
     bool ok = m_pClient->connect(address, false);
     if (!ok) {
@@ -682,12 +684,11 @@ bool BmsBleClient::setCharging(bool enable) {
         bool ok = writeJbdFetState(currentFet);
         if (ok) m_telemetry.switch_charging = enable;
         return ok;
-    } else if (m_telemetry.bms_type == "JK-BMS") {
+    } else {
         bool ok = writeJkRegister(29, enable ? 1 : 0, 4); // JK02 Reg 29: Charge Switch
         if (ok) m_telemetry.switch_charging = enable;
         return ok;
     }
-    return false;
 }
 
 bool BmsBleClient::setDischarging(bool enable) {
@@ -699,19 +700,19 @@ bool BmsBleClient::setDischarging(bool enable) {
         bool ok = writeJbdFetState(currentFet);
         if (ok) m_telemetry.switch_discharging = enable;
         return ok;
-    } else if (m_telemetry.bms_type == "JK-BMS") {
+    } else {
         bool ok = writeJkRegister(30, enable ? 1 : 0, 4); // JK02 Reg 30: Discharge Switch
         if (ok) m_telemetry.switch_discharging = enable;
         return ok;
     }
-    return false;
 }
 
 bool BmsBleClient::setBalancer(bool enable) {
-    if (m_telemetry.bms_type == "JK-BMS") {
+    if (m_telemetry.bms_type == "JBD-BMS") {
+        return false; // JBD handles balancing autonomously
+    } else {
         bool ok = writeJkRegister(31, enable ? 1 : 0, 4); // JK02 Reg 31: Active Balancer Switch
         if (ok) m_telemetry.switch_balancer = enable;
         return ok;
     }
-    return false; // JBD handles balancing autonomously
 }
