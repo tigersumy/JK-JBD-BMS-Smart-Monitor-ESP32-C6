@@ -498,63 +498,90 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         document.getElementById('val-wifi-rssi').textContent = data.wifi_rssi + ' dBm';
       }
 
-      // Switches update if user not dragging
-      if (!updatingSw) {
-        document.getElementById('sw-charge').checked = !!data.switch_charging;
-        document.getElementById('sw-discharge').checked = !!data.switch_discharging;
-        document.getElementById('sw-balancer').checked = !!data.switch_balancer;
+    let lastSwitchActionTime = {
+      charging: 0,
+      discharging: 0,
+      balancer: 0
+    };
 
-        // Dynamic adaptation for JBD (passive auto) vs JK (active manual)
-        const isJbd = (data.bms_type === 'JBD-BMS');
-        const balTitle = document.getElementById('lbl-bal-title');
-        const balDesc = document.getElementById('lbl-bal-desc');
-        const balInput = document.getElementById('sw-balancer');
+    // Update switches only if not recently toggled by user
+    const nowTs = Date.now();
+    const swCharge = document.getElementById('sw-charge');
+    const swDischarge = document.getElementById('sw-discharge');
+    const swBalancer = document.getElementById('sw-balancer');
 
-        if (balTitle && balDesc && balInput) {
-          if (isJbd) {
-            balTitle.textContent = (currentLang === 'uk') ? '⚖️ Балансування (Пасивне)' : '⚖️ Balancing (Passive)';
-            balDesc.textContent = data.balancing_active ? 
-              ((currentLang === 'uk') ? '🟢 Балансування активне' : '🟢 Equalizing Active') :
-              ((currentLang === 'uk') ? 'Автоматично за порогом V' : 'Automatic V threshold');
-            balInput.disabled = true;
-          } else {
-            balTitle.textContent = (currentLang === 'uk') ? '⚖️ Активний балансир' : '⚖️ Active Balancer';
-            balDesc.textContent = (currentLang === 'uk') ? 'Вирівнювання комірок' : 'Cell voltage equalization';
-            balInput.disabled = false;
-          }
+    if (swCharge && nowTs - lastSwitchActionTime.charging > 3500) {
+      swCharge.checked = !!data.switch_charging;
+    }
+    if (swDischarge && nowTs - lastSwitchActionTime.discharging > 3500) {
+      swDischarge.checked = !!data.switch_discharging;
+    }
+    if (swBalancer && nowTs - lastSwitchActionTime.balancer > 3500) {
+      swBalancer.checked = !!data.switch_balancer;
+    }
+
+    // Dynamic adaptation for JBD (passive auto) vs JK (active manual)
+    const isJbd = (data.bms_type === 'JBD-BMS');
+    const balTitle = document.getElementById('lbl-bal-title');
+    const balDesc = document.getElementById('lbl-bal-desc');
+
+    if (balTitle && balDesc && swBalancer) {
+      if (isJbd) {
+        balTitle.textContent = (currentLang === 'uk') ? '⚖️ Балансування (Пасивне)' : '⚖️ Balancing (Passive)';
+        balDesc.textContent = data.balancing_active ? 
+          ((currentLang === 'uk') ? '🟢 Балансування активне' : '🟢 Equalizing Active') :
+          ((currentLang === 'uk') ? 'Автоматично за порогом V' : 'Automatic V threshold');
+        swBalancer.disabled = true;
+      } else {
+        balTitle.textContent = (currentLang === 'uk') ? '⚖️ Активний балансир' : '⚖️ Active Balancer';
+        balDesc.textContent = (currentLang === 'uk') ? 'Вирівнювання комірок' : 'Cell voltage equalization';
+        swBalancer.disabled = false;
+      }
+    }
+  }
+
+  async function fetchData() {
+    try {
+      const res = await fetch('/api/data');
+      if (res.ok) {
+        const json = await res.json();
+        updateUi(json);
+      }
+    } catch (e) {
+      document.getElementById('status-dot').className = 'dot';
+      document.getElementById('status-text').textContent = t('st_server_err');
+    }
+  }
+
+  async function toggleSw(swType, state) {
+    if (swType === 'balancer' && lastData && lastData.bms_type === 'JBD-BMS') {
+      return; // JBD BMS passive balancer is managed by BMS hardware thresholds automatically
+    }
+    lastSwitchActionTime[swType] = Date.now();
+    try {
+      const res = await fetch('/api/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ switch: swType, state: state })
+      });
+      const respJson = await res.json();
+      if (respJson && respJson.status === 'ok') {
+        if (lastData) {
+          if (swType === 'charging') lastData.switch_charging = state;
+          if (swType === 'discharging') lastData.switch_discharging = state;
+          if (swType === 'balancer') lastData.switch_balancer = state;
         }
+      } else {
+        // Revert switch on failure
+        lastSwitchActionTime[swType] = 0;
+        fetchData();
       }
+    } catch(e) {
+      console.error(e);
+      lastSwitchActionTime[swType] = 0;
+      fetchData();
     }
-
-    async function fetchData() {
-      try {
-        const res = await fetch('/api/data');
-        if (res.ok) {
-          const json = await res.json();
-          updateUi(json);
-        }
-      } catch (e) {
-        document.getElementById('status-dot').className = 'dot';
-        document.getElementById('status-text').textContent = t('st_server_err');
-      }
-    }
-
-    async function toggleSw(swType, state) {
-      if (swType === 'balancer' && lastData && lastData.bms_type === 'JBD-BMS') {
-        return; // JBD BMS passive balancer is managed by BMS hardware thresholds automatically
-      }
-      updatingSw = true;
-      try {
-        await fetch('/api/switch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ switch: swType, state: state })
-        });
-      } catch(e) {
-        console.error(e);
-      }
-      setTimeout(() => { updatingSw = false; fetchData(); }, 1000);
-    }
+  }
 
     async function changeCells(num) {
       try {

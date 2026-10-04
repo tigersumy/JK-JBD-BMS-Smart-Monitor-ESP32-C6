@@ -683,9 +683,13 @@ bool BmsBleClient::setCharging(bool enable) {
                              (m_telemetry.switch_discharging ? 0x02 : 0x00);
         if (enable) currentFet |= 0x01;
         else currentFet &= ~0x01;
-        return writeJbdFetState(currentFet);
+        bool ok = writeJbdFetState(currentFet);
+        if (ok) m_telemetry.switch_charging = enable;
+        return ok;
     } else if (m_telemetry.bms_type == "JK-BMS") {
-        return writeJkRegister(0x1D, enable ? 1 : 0);
+        bool ok = writeJkRegister(0x1D, enable ? 1 : 0);
+        if (ok) m_telemetry.switch_charging = enable;
+        return ok;
     }
     return false;
 }
@@ -696,16 +700,22 @@ bool BmsBleClient::setDischarging(bool enable) {
                              (m_telemetry.switch_discharging ? 0x02 : 0x00);
         if (enable) currentFet |= 0x02;
         else currentFet &= ~0x02;
-        return writeJbdFetState(currentFet);
+        bool ok = writeJbdFetState(currentFet);
+        if (ok) m_telemetry.switch_discharging = enable;
+        return ok;
     } else if (m_telemetry.bms_type == "JK-BMS") {
-        return writeJkRegister(0x1E, enable ? 1 : 0);
+        bool ok = writeJkRegister(0x1E, enable ? 1 : 0);
+        if (ok) m_telemetry.switch_discharging = enable;
+        return ok;
     }
     return false;
 }
 
 bool BmsBleClient::setBalancer(bool enable) {
     if (m_telemetry.bms_type == "JK-BMS") {
-        return writeJkRegister(0x1F, enable ? 1 : 0);
+        bool ok = writeJkRegister(0x1F, enable ? 1 : 0);
+        if (ok) m_telemetry.switch_balancer = enable;
+        return ok;
     }
     return false; // JBD handles balancing autonomously
 }
