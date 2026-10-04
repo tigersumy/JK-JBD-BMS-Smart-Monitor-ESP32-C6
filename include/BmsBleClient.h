@@ -44,7 +44,8 @@ private:
     NimBLEClient* m_pClient = nullptr;
     NimBLERemoteCharacteristic* m_pJbdNotifyChar = nullptr;
     NimBLERemoteCharacteristic* m_pJbdWriteChar  = nullptr;
-    NimBLERemoteCharacteristic* m_pJkChar        = nullptr;
+    NimBLERemoteCharacteristic* m_pJkNotifyChar  = nullptr;
+    NimBLERemoteCharacteristic* m_pJkWriteChar   = nullptr;
 
     bool m_isConnected = false;
     bool m_isScanning  = false;
@@ -64,9 +65,13 @@ private:
     bool writeJbdFetState(uint8_t newFetMask);
 
     // JK protocol handlers
+    static uint8_t calcJkCrc(const uint8_t* data, size_t len);
+    std::vector<uint8_t> buildJkFrame(uint8_t address, uint32_t value, uint8_t length);
     void handleJkPacket(const uint8_t* data, size_t len);
+    void decodeJkCellInfo(const std::vector<uint8_t>& data);
+    void decodeJkSettings(const std::vector<uint8_t>& data);
     void sendJkPollRequest();
-    bool writeJkRegister(uint8_t reg, uint8_t value);
+    bool writeJkRegister(uint8_t reg, uint32_t value);
 
     // BLE Callbacks
     friend class BmsScanCallbacks;
