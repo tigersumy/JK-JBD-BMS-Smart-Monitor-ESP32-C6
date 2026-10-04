@@ -71,7 +71,7 @@ private:
     void decodeJkCellInfo(const std::vector<uint8_t>& data);
     void decodeJkSettings(const std::vector<uint8_t>& data);
     void sendJkPollRequest();
-    bool writeJkRegister(uint8_t reg, uint32_t value);
+    bool writeJkRegister(uint8_t reg, uint32_t value, uint8_t length = 4);
 
     // BLE Callbacks
     friend class BmsScanCallbacks;
