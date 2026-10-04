@@ -6,6 +6,8 @@
 [![UI](https://img.shields.io/badge/WebUI-Dark%20SPA%20(UA%20%2F%20EN)-purple.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+🌐 **Українська версія** | **[English Version](README_EN.md)**
+
 **Універсальний, повністю автономний розумний BLE-шлюз та локальний веб-монітор для акумуляторних батарей (LiFePO4 / Li-ion / LTO) на базі мікроконтролера ESP32-C6 (із підтримкою ESP32-S3).**
 
 Підтримує одночасно два найпопулярніших протоколи BMS: **JK-BMS (JiKong)** та **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar)** із вбудованою функцією автовизначення протоколу.
