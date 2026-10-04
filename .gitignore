@@ -1,0 +1,6 @@
+.pio/
+.vscode/
+*.ipr
+*.iws
+*.swp
+.DS_Store
