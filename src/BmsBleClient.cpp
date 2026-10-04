@@ -20,44 +20,53 @@ class BmsClientCallbacks : public NimBLEClientCallbacks {
 };
 
 class BmsScanCallbacks : public NimBLEScanCallbacks {
-    void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+    void processDevice(const NimBLEAdvertisedDevice* advertisedDevice) {
         if (!s_pInstance) return;
 
         String name = advertisedDevice->getName().c_str();
         String addr = advertisedDevice->getAddress().toString().c_str();
         int rssi = advertisedDevice->getRSSI();
-        String type = "Unknown";
+        String type = "BLE Device";
 
-        if (name.startsWith("JK") || advertisedDevice->isAdvertisingService(NimBLEUUID("ffe0"))) {
+        if (name.startsWith("JK") || advertisedDevice->isAdvertisingService(NimBLEUUID("ffe0")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FFE0"))) {
             type = "JK-BMS";
         } else if (name.startsWith("JBD") || name.startsWith("Xiaoxiang") || name.startsWith("SP") ||
-                   advertisedDevice->isAdvertisingService(NimBLEUUID("ff00"))) {
+                   advertisedDevice->isAdvertisingService(NimBLEUUID("ff00")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FF00"))) {
             type = "JBD-BMS";
         }
 
         // Avoid duplicates
         for (auto& dev : s_pInstance->m_discoveredDevices) {
-            if (dev.address == addr) {
+            if (dev.address.equalsIgnoreCase(addr)) {
                 dev.rssi = rssi;
                 if (dev.name.length() == 0 && name.length() > 0) dev.name = name;
+                if (type != "BLE Device") dev.bms_type = type;
                 return;
             }
         }
 
         BleDiscoveredDevice d;
-        d.name = name;
+        d.name = name.length() > 0 ? name : "BMS Device";
         d.address = addr;
         d.rssi = rssi;
         d.bms_type = type;
         d.addr_type = advertisedDevice->getAddress().getType();
         s_pInstance->m_discoveredDevices.push_back(d);
 
-        Serial.printf("[SCAN] Found: %s [%s] RSSI:%d Type:%s AddrType:%d\n", 
-                      name.c_str(), addr.c_str(), rssi, type.c_str(), d.addr_type);
+        Serial.printf("[SCAN] Discovered: %s [%s] RSSI:%d Type:%s\n", 
+                      d.name.c_str(), addr.c_str(), rssi, type.c_str());
+    }
+
+    void onDiscovered(const NimBLEAdvertisedDevice* advertisedDevice) override {
+        processDevice(advertisedDevice);
+    }
+
+    void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override {
+        processDevice(advertisedDevice);
     }
 
     void onScanEnd(const NimBLEScanResults& results, int reason) override {
-        Serial.println("[SCAN] Scan finished.");
+        Serial.printf("[SCAN] Scan finished (found %d devices, reason: %d).\n", results.getCount(), reason);
         if (s_pInstance) s_pInstance->m_isScanning = false;
     }
 };
@@ -72,8 +81,8 @@ bool BmsBleClient::init() {
     NimBLEScan* pScan = NimBLEDevice::getScan();
     pScan->setScanCallbacks(new BmsScanCallbacks());
     pScan->setActiveScan(true);
-    pScan->setInterval(100);
-    pScan->setWindow(99);
+    pScan->setInterval(80);
+    pScan->setWindow(80); // 100% duty cycle for reliable scanner
     return true;
 }
 
@@ -86,8 +95,22 @@ void BmsBleClient::startScan(uint32_t durationSeconds) {
     m_discoveredDevices.clear();
     m_isScanning = true;
     m_lastScanStartTime = millis();
-    NimBLEDevice::getScan()->start(durationSeconds, false);
-    Serial.printf("[BLE] Started scan for %u seconds...\n", (unsigned int)durationSeconds);
+    NimBLEDevice::getScan()->start(durationSeconds * 1000, false);
+    Serial.printf("[BLE] Started background scan for %u seconds...\n", (unsigned int)durationSeconds);
+}
+
+String BmsBleClient::performScanSync(uint32_t durationSeconds) {
+    m_discoveredDevices.clear();
+    m_isScanning = true;
+    NimBLEScan* pScan = NimBLEDevice::getScan();
+    pScan->setActiveScan(true);
+    pScan->setInterval(80);
+    pScan->setWindow(80);
+    Serial.printf("[BLE] Starting active scan for %u seconds...\n", durationSeconds);
+    NimBLEScanResults results = pScan->getResults(durationSeconds * 1000, false);
+    Serial.printf("[BLE] Scan complete. Found %d devices.\n", results.getCount());
+    m_isScanning = false;
+    return getDiscoveredDevicesJson();
 }
 
 std::vector<BleDiscoveredDevice> BmsBleClient::getDiscoveredDevices() {

@@ -32,6 +32,7 @@ public:
 
     // Scanner functions
     void startScan(uint32_t durationSeconds = 5);
+    String performScanSync(uint32_t durationSeconds = 3);
     bool isScanning() const { return m_isScanning; }
     std::vector<BleDiscoveredDevice> getDiscoveredDevices();
     String getDiscoveredDevicesJson();

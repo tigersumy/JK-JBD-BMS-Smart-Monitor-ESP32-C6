@@ -230,12 +230,7 @@ void setupHttpRoutes() {
 
     // API: BLE Scanner
     server.on("/api/scan-ble", HTTP_GET, []() {
-        if (!g_bleClient.isScanning()) {
-            g_bleClient.startScan(5);
-            // Wait briefly for initial results
-            delay(1200);
-        }
-        String json = g_bleClient.getDiscoveredDevicesJson();
+        String json = g_bleClient.performScanSync(3);
         server.send(200, "application/json", json);
     });
 
