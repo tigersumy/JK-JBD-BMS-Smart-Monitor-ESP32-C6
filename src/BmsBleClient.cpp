@@ -461,6 +461,7 @@ uint8_t BmsBleClient::calcJkCrc(const uint8_t* data, size_t len) {
 }
 
 std::vector<uint8_t> BmsBleClient::buildJkFrame(uint8_t address, uint32_t value, uint8_t length) {
+    static uint8_t s_seq = 0;
     std::vector<uint8_t> frame(20, 0x00);
     frame[0] = 0xAA;
     frame[1] = 0x55;
@@ -472,6 +473,7 @@ std::vector<uint8_t> BmsBleClient::buildJkFrame(uint8_t address, uint32_t value,
     frame[7] = (value >> 8) & 0xFF;
     frame[8] = (value >> 16) & 0xFF;
     frame[9] = (value >> 24) & 0xFF;
+    frame[16] = ++s_seq;
     frame[19] = calcJkCrc(frame.data(), 19);
     return frame;
 }
@@ -646,8 +648,9 @@ bool BmsBleClient::writeJkRegister(uint8_t reg, uint32_t value) {
         Serial.println("[BLE] writeJkRegister failed: not connected");
         return false;
     }
-    auto frame = buildJkFrame(reg, value, 4);
-    Serial.printf("[BLE] Setting JK register 0x%02X (%u) to %u\n", reg, reg, value);
+    // JK switch registers (0xAB, 0xAC, 0x9D) use length=1
+    auto frame = buildJkFrame(reg, value, 1);
+    Serial.printf("[BLE] Setting JK register 0x%02X to %u\n", reg, value);
 
     bool ok = false;
     NimBLERemoteCharacteristic* target = m_pJkNotifyChar;
@@ -668,9 +671,9 @@ bool BmsBleClient::writeJkRegister(uint8_t reg, uint32_t value) {
     }
 
     if (ok) {
-        if (reg == 0x1D) m_telemetry.switch_charging = (value != 0);
-        else if (reg == 0x1E) m_telemetry.switch_discharging = (value != 0);
-        else if (reg == 0x1F) m_telemetry.switch_balancer = (value != 0);
+        if (reg == 0xAB) m_telemetry.switch_charging = (value != 0);
+        else if (reg == 0xAC) m_telemetry.switch_discharging = (value != 0);
+        else if (reg == 0x9D) m_telemetry.switch_balancer = (value != 0);
     }
     return ok;
 }
@@ -687,7 +690,7 @@ bool BmsBleClient::setCharging(bool enable) {
         if (ok) m_telemetry.switch_charging = enable;
         return ok;
     } else if (m_telemetry.bms_type == "JK-BMS") {
-        bool ok = writeJkRegister(0x1D, enable ? 1 : 0);
+        bool ok = writeJkRegister(0xAB, enable ? 1 : 0); // 0xAB: Charge MOS Switch
         if (ok) m_telemetry.switch_charging = enable;
         return ok;
     }
@@ -704,7 +707,7 @@ bool BmsBleClient::setDischarging(bool enable) {
         if (ok) m_telemetry.switch_discharging = enable;
         return ok;
     } else if (m_telemetry.bms_type == "JK-BMS") {
-        bool ok = writeJkRegister(0x1E, enable ? 1 : 0);
+        bool ok = writeJkRegister(0xAC, enable ? 1 : 0); // 0xAC: Discharge MOS Switch
         if (ok) m_telemetry.switch_discharging = enable;
         return ok;
     }
@@ -713,7 +716,7 @@ bool BmsBleClient::setDischarging(bool enable) {
 
 bool BmsBleClient::setBalancer(bool enable) {
     if (m_telemetry.bms_type == "JK-BMS") {
-        bool ok = writeJkRegister(0x1F, enable ? 1 : 0);
+        bool ok = writeJkRegister(0x9D, enable ? 1 : 0); // 0x9D: Active Balancer Switch
         if (ok) m_telemetry.switch_balancer = enable;
         return ok;
     }
