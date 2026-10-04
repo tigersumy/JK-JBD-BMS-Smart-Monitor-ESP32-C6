@@ -202,12 +202,12 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
             <span class="slider"></span>
           </label>
         </div>
-        <div class="switch-card">
+        <div class="switch-card" id="card-balancer">
           <div class="switch-info">
-            <h4 data-i18n="sw_bal_h">⚖️ Active Balancer</h4>
-            <p data-i18n="sw_bal_p">Cell voltage equalization</p>
+            <h4 id="lbl-bal-title" data-i18n="sw_bal_h">⚖️ Active Balancer</h4>
+            <p id="lbl-bal-desc" data-i18n="sw_bal_p">Cell voltage equalization</p>
           </div>
-          <label class="toggle">
+          <label class="toggle" id="toggle-bal-container">
             <input type="checkbox" id="sw-balancer" onchange="toggleSw('balancer', this.checked)">
             <span class="slider"></span>
           </label>
@@ -503,6 +503,26 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         document.getElementById('sw-charge').checked = !!data.switch_charging;
         document.getElementById('sw-discharge').checked = !!data.switch_discharging;
         document.getElementById('sw-balancer').checked = !!data.switch_balancer;
+
+        // Dynamic adaptation for JBD (passive auto) vs JK (active manual)
+        const isJbd = (data.bms_type === 'JBD-BMS');
+        const balTitle = document.getElementById('lbl-bal-title');
+        const balDesc = document.getElementById('lbl-bal-desc');
+        const balInput = document.getElementById('sw-balancer');
+
+        if (balTitle && balDesc && balInput) {
+          if (isJbd) {
+            balTitle.textContent = (currentLang === 'uk') ? '⚖️ Балансування (Пасивне)' : '⚖️ Balancing (Passive)';
+            balDesc.textContent = data.balancing_active ? 
+              ((currentLang === 'uk') ? '🟢 Балансування активне' : '🟢 Equalizing Active') :
+              ((currentLang === 'uk') ? 'Автоматично за порогом V' : 'Automatic V threshold');
+            balInput.disabled = true;
+          } else {
+            balTitle.textContent = (currentLang === 'uk') ? '⚖️ Активний балансир' : '⚖️ Active Balancer';
+            balDesc.textContent = (currentLang === 'uk') ? 'Вирівнювання комірок' : 'Cell voltage equalization';
+            balInput.disabled = false;
+          }
+        }
       }
     }
 
@@ -520,6 +540,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function toggleSw(swType, state) {
+      if (swType === 'balancer' && lastData && lastData.bms_type === 'JBD-BMS') {
+        return; // JBD BMS passive balancer is managed by BMS hardware thresholds automatically
+      }
       updatingSw = true;
       try {
         await fetch('/api/switch', {
