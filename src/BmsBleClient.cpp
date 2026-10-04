@@ -142,18 +142,13 @@ void BmsBleClient::loop() {
     }
 
     // Auto-connect if not connected and not scanning
-    if (!m_isConnected && !m_isScanning && (now - m_lastConnectAttempt > 4000)) {
+    if (!m_isConnected && !m_isScanning && (now - m_lastConnectAttempt > 3000)) {
         m_lastConnectAttempt = now;
 
         if (m_config.bms_mac.length() > 0) {
-            unsigned int firstByte = 0;
-            sscanf(m_config.bms_mac.c_str(), "%02x", &firstByte);
-            uint8_t primaryType = ((firstByte & 0xC0) == 0xC0) ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
-            uint8_t secondaryType = (primaryType == BLE_ADDR_PUBLIC) ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
-
-            NimBLEAddress targetAddr(std::string(m_config.bms_mac.c_str()), primaryType);
+            NimBLEAddress targetAddr(std::string(m_config.bms_mac.c_str()), BLE_ADDR_PUBLIC);
             if (!connectToDevice(targetAddr, m_config.bms_name, m_config.bms_type)) {
-                NimBLEAddress altAddr(std::string(m_config.bms_mac.c_str()), secondaryType);
+                NimBLEAddress altAddr(std::string(m_config.bms_mac.c_str()), BLE_ADDR_RANDOM);
                 connectToDevice(altAddr, m_config.bms_name, m_config.bms_type);
             }
         } else {
@@ -185,8 +180,8 @@ void BmsBleClient::loop() {
             }
             m_pollStep++;
         } else if (m_telemetry.bms_type == "JK-BMS") {
-            // JK-BMS streams telemetry automatically. ONLY poll if silent for > 10s.
-            if (m_telemetry.last_update == 0 || (now - m_telemetry.last_update > 10000)) {
+            // If connected to JK-BMS, only poll if silent for > 4s
+            if (m_telemetry.last_update == 0 || (now - m_telemetry.last_update > 4000)) {
                 sendJkPollRequest();
             }
         }
@@ -204,7 +199,7 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
 
     m_pClient = NimBLEDevice::createClient();
     m_pClient->setClientCallbacks(new BmsClientCallbacks());
-    m_pClient->setConnectionParams(12, 12, 0, 200);
+    m_pClient->setConnectionParams(24, 40, 0, 500); // 5.0s supervision timeout
     m_pClient->setConnectTimeout(6000); // 6000 ms in NimBLE 2.x
 
     bool ok = m_pClient->connect(address, false);
@@ -500,17 +495,15 @@ void BmsBleClient::handleJkPacket(const uint8_t* data, size_t len) {
 
     m_rxBuffer.insert(m_rxBuffer.end(), data, data + len);
 
-    // Frame complete check: JK02 frames are typically 300 bytes
-    if (m_rxBuffer.size() >= 300) {
-        if (m_rxBuffer[0] == 0x55 && m_rxBuffer[1] == 0xAA && m_rxBuffer[2] == 0xEB && m_rxBuffer[3] == 0x90) {
-            uint8_t frameType = m_rxBuffer[4];
-            if (frameType == 0x01) {
-                decodeJkSettings(m_rxBuffer);
-            } else if (frameType == 0x02) {
-                decodeJkCellInfo(m_rxBuffer);
-            }
+    if (m_rxBuffer.size() >= 5 && m_rxBuffer[0] == 0x55 && m_rxBuffer[1] == 0xAA && m_rxBuffer[2] == 0xEB && m_rxBuffer[3] == 0x90) {
+        uint8_t frameType = m_rxBuffer[4];
+        if (frameType == 0x01 && m_rxBuffer.size() >= 130) {
+            decodeJkSettings(m_rxBuffer);
+            m_rxBuffer.clear();
+        } else if (frameType == 0x02 && m_rxBuffer.size() >= 300) {
+            decodeJkCellInfo(m_rxBuffer);
+            m_rxBuffer.clear();
         }
-        m_rxBuffer.clear();
     }
 }
 
