@@ -295,35 +295,47 @@ void setupHttpRoutes() {
     Serial.println("[HTTP] WebServer started on port 80");
 }
 
-#if defined(CONFIG_IDF_TARGET_ESP32C6) || defined(ARDUINO_ESP32C6_DEV)
+#ifndef BUTTON_PIN
 #define BUTTON_PIN 9
-#else
-#define BUTTON_PIN 0
 #endif
 
 static uint32_t s_btnPressStartTime = 0;
 static bool s_btnWasPressed = false;
+static bool s_factoryResetTriggered = false;
 
 void handleButton() {
     bool isPressed = (digitalRead(BUTTON_PIN) == LOW);
 
-    if (isPressed && !s_btnWasPressed) {
-        s_btnWasPressed = true;
-        s_btnPressStartTime = millis();
-    } else if (!isPressed && s_btnWasPressed) {
+    if (isPressed) {
+        if (!s_btnWasPressed) {
+            s_btnWasPressed = true;
+            s_btnPressStartTime = millis();
+            s_factoryResetTriggered = false;
+            Serial.println("[Button] GPIO 9 pressed...");
+        } else {
+            uint32_t duration = millis() - s_btnPressStartTime;
+            if (duration >= 3000 && !s_factoryResetTriggered) {
+                s_factoryResetTriggered = true;
+                Serial.println("\n=======================================================");
+                Serial.println("  [Button] LONG PRESS (>3s) -> FACTORY RESET TRIGGERED! ");
+                Serial.println("  Erasing all NVS settings and restarting to AP mode... ");
+                Serial.println("=======================================================\n");
+
+                nvs_flash_erase();
+                nvs_flash_init();
+
+                AppConfig blankCfg;
+                ConfigManager::save(blankCfg);
+                delay(600);
+                ESP.restart();
+            }
+        }
+    } else if (s_btnWasPressed) {
         uint32_t pressDuration = millis() - s_btnPressStartTime;
         s_btnWasPressed = false;
 
-        if (pressDuration >= 3000) {
-            // Long press (>3s): Factory Reset (clear NVS and restart to AP mode)
-            Serial.println("\n[Button] LONG PRESS (>3s) -> FACTORY RESET! Erasing settings & rebooting...");
-            AppConfig blankCfg;
-            ConfigManager::save(blankCfg);
-            delay(500);
-            ESP.restart();
-        } else if (pressDuration >= 50) {
-            // Short press (50ms - 3s): Force BLE Reconnect
-            Serial.printf("\n[Button] SHORT PRESS (%u ms) -> Reconnecting BLE...\n", (unsigned int)pressDuration);
+        if (!s_factoryResetTriggered && pressDuration >= 50) {
+            Serial.printf("[Button] SHORT PRESS (%u ms) -> Reconnecting BLE...\n", (unsigned int)pressDuration);
             g_bleClient.reconnect();
         }
     }
