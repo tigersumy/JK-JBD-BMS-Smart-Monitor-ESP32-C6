@@ -25,10 +25,13 @@ static uint32_t g_lastBleLoop = 0;
 static uint32_t g_wifiConnectStartTime = 0;
 
 void setupWifi() {
-    WiFi.mode(WIFI_STA);
+    WiFi.persistent(false);
+    WiFi.disconnect(true);
     WiFi.setSleep(false);
+    delay(100);
 
     if (g_config.wifi_ssid.length() > 0) {
+        WiFi.mode(WIFI_STA);
         Serial.printf("[WiFi] Connecting to %s...\n", g_config.wifi_ssid.c_str());
         WiFi.begin(g_config.wifi_ssid.c_str(), g_config.wifi_pass.c_str());
 
@@ -50,12 +53,16 @@ void setupWifi() {
     } else {
         g_isApMode = true;
         Serial.println("[WiFi] Starting Fallback Access Point (AP Mode)...");
-        WiFi.mode(WIFI_AP_STA);
-        WiFi.softAP("BMS-Monitor-AP", "");
-        delay(100);
-        IPAddress apIP = WiFi.softAPIP();
-        Serial.printf("[WiFi] AP IP address: %s\n", apIP.toString().c_str());
+        WiFi.mode(WIFI_AP);
+        IPAddress apIP(192, 168, 4, 1);
+        IPAddress gateway(192, 168, 4, 1);
+        IPAddress subnet(255, 255, 255, 0);
+        WiFi.softAPConfig(apIP, gateway, subnet);
+        bool apOk = WiFi.softAP("BMS-Monitor-AP", "", 1, 0, 4);
+        delay(200);
+        Serial.printf("[WiFi] AP status: %s, AP IP address: %s\n", apOk ? "OK" : "ERR", WiFi.softAPIP().toString().c_str());
 
+        dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
         dnsServer.start(DNS_PORT, "*", apIP);
         if (MDNS.begin("bms-monitor")) {
             MDNS.addService("http", "tcp", 80);
@@ -230,7 +237,7 @@ void setupHttpRoutes() {
 
     // API: BLE Scanner
     server.on("/api/scan-ble", HTTP_GET, []() {
-        String json = g_bleClient.performScanSync(3);
+        String json = g_bleClient.performScanSync(6);
         server.send(200, "application/json", json);
     });
 

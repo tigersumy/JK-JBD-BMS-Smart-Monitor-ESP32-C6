@@ -30,8 +30,11 @@ class BmsScanCallbacks : public NimBLEScanCallbacks {
 
         if (name.startsWith("JK") || advertisedDevice->isAdvertisingService(NimBLEUUID("ffe0")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FFE0"))) {
             type = "JK-BMS";
-        } else if (name.startsWith("JBD") || name.startsWith("Xiaoxiang") || name.startsWith("SP") ||
-                   advertisedDevice->isAdvertisingService(NimBLEUUID("ff00")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FF00"))) {
+        } else if (name.startsWith("JBD") || name.startsWith("Xiaoxiang") || name.startsWith("SP") || name.startsWith("BS-") ||
+                   advertisedDevice->isAdvertisingService(NimBLEUUID("ff00")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FF00")) ||
+                   advertisedDevice->isAdvertisingService(NimBLEUUID("fff0")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FFF0")) ||
+                   advertisedDevice->isAdvertisingService(NimBLEUUID("0000FF00-0000-1000-8000-00805F9B34FB")) ||
+                   advertisedDevice->isAdvertisingService(NimBLEUUID("0000FFF0-0000-1000-8000-00805F9B34FB"))) {
             type = "JBD-BMS";
         }
 
@@ -82,8 +85,8 @@ bool BmsBleClient::init() {
     NimBLEScan* pScan = NimBLEDevice::getScan();
     pScan->setScanCallbacks(new BmsScanCallbacks());
     pScan->setActiveScan(true);
-    pScan->setInterval(80);
-    pScan->setWindow(80); // 100% duty cycle for reliable scanner
+    pScan->setInterval(160); // 100ms
+    pScan->setWindow(40);    // 25ms (25% duty cycle for Wi-Fi AP coexistence)
     return true;
 }
 
@@ -96,7 +99,10 @@ void BmsBleClient::startScan(uint32_t durationSeconds) {
     m_discoveredDevices.clear();
     m_isScanning = true;
     m_lastScanStartTime = millis();
-    NimBLEDevice::getScan()->start(durationSeconds * 1000, false);
+    NimBLEScan* pScan = NimBLEDevice::getScan();
+    pScan->setInterval(160);
+    pScan->setWindow(40);
+    pScan->start(durationSeconds * 1000, false);
     Serial.printf("[BLE] Started background scan for %u seconds...\n", (unsigned int)durationSeconds);
 }
 
@@ -104,10 +110,11 @@ String BmsBleClient::performScanSync(uint32_t durationSeconds) {
     m_discoveredDevices.clear();
     m_isScanning = true;
     NimBLEScan* pScan = NimBLEDevice::getScan();
+    pScan->clearResults();
     pScan->setActiveScan(true);
-    pScan->setInterval(80);
-    pScan->setWindow(80);
-    Serial.printf("[BLE] Starting active scan for %u seconds...\n", durationSeconds);
+    pScan->setInterval(100);
+    pScan->setWindow(90);
+    Serial.printf("[BLE] Starting intensive active scan for %u seconds...\n", durationSeconds);
     NimBLEScanResults results = pScan->getResults(durationSeconds * 1000, false);
     Serial.printf("[BLE] Scan complete. Found %d devices.\n", results.getCount());
     m_isScanning = false;
@@ -142,7 +149,7 @@ void BmsBleClient::loop() {
     }
 
     // Auto-connect if not connected and not scanning
-    if (!m_isConnected && !m_isScanning && (now - m_lastConnectAttempt > 3000)) {
+    if (!m_isConnected && !m_isScanning && (now - m_lastConnectAttempt > 5000)) {
         m_lastConnectAttempt = now;
 
         if (m_config.bms_mac.length() > 0) {
@@ -166,8 +173,9 @@ void BmsBleClient::loop() {
                     }
                 }
             }
-            if (!m_isConnected && m_discoveredDevices.empty()) {
-                startScan(4);
+            // In unconfigured state, scan periodically (every 20s) instead of aggressive loop
+            if (!m_isConnected && m_discoveredDevices.empty() && (now - m_lastScanStartTime > 20000)) {
+                startScan(3);
             }
         }
     }
@@ -213,14 +221,44 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
     Serial.println("[BLE] Connected! Discovering services...");
     m_rxBuffer.clear();
 
-    // Try JBD Primary Service 0xFF00
-    NimBLERemoteService* pJbdService = m_pClient->getService(NimBLEUUID("FF00"));
-    if (pJbdService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JBD)) {
-        Serial.println("[BLE] Found JBD Service (0xFF00)!");
-        m_pJbdNotifyChar = pJbdService->getCharacteristic(NimBLEUUID("FF01"));
-        m_pJbdWriteChar  = pJbdService->getCharacteristic(NimBLEUUID("FF02"));
+    // Discover all available remote services
+    std::vector<NimBLERemoteService*> services = m_pClient->getServices(true);
+    NimBLERemoteService* pJbdService = nullptr;
+    NimBLERemoteService* pJkService = nullptr;
 
-        if (m_pJbdNotifyChar && m_pJbdWriteChar && m_pJbdNotifyChar->canNotify()) {
+    for (auto* s : services) {
+        String sUuid = s->getUUID().toString().c_str();
+        sUuid.toLowerCase();
+        Serial.printf("[BLE] Found Remote Service UUID: %s\n", sUuid.c_str());
+
+        if (sUuid.indexOf("ff00") >= 0 || sUuid.indexOf("fff0") >= 0) {
+            pJbdService = s;
+        } else if (sUuid.indexOf("ffe0") >= 0) {
+            pJkService = s;
+        }
+    }
+
+    // 1. Try JBD Service (FF00 / FFF0 / 128-bit)
+    if (pJbdService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JBD)) {
+        Serial.printf("[BLE] Connecting to JBD Service (%s)...\n", pJbdService->getUUID().toString().c_str());
+        m_pJbdNotifyChar = nullptr;
+        m_pJbdWriteChar  = nullptr;
+
+        for (auto* c : pJbdService->getCharacteristics(true)) {
+            String uuid = c->getUUID().toString().c_str();
+            uuid.toLowerCase();
+            Serial.printf("[BLE]   JBD Char UUID: %s, handle: %d, canNotify: %d, canIndicate: %d, canWrite: %d, canWriteNoResp: %d\n",
+                          uuid.c_str(), c->getHandle(), c->canNotify(), c->canIndicate(), c->canWrite(), c->canWriteNoResponse());
+
+            if (uuid.indexOf("ff01") >= 0 || uuid.indexOf("fff1") >= 0 || c->canNotify() || c->canIndicate()) {
+                m_pJbdNotifyChar = c;
+            }
+            if (uuid.indexOf("ff02") >= 0 || uuid.indexOf("fff2") >= 0 || c->canWrite() || c->canWriteNoResponse()) {
+                m_pJbdWriteChar = c;
+            }
+        }
+
+        if (m_pJbdNotifyChar && m_pJbdWriteChar) {
             m_pJbdNotifyChar->subscribe(true, [this](NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
                 this->handleJbdPacket(pData, length);
             });
@@ -232,14 +270,31 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
             m_telemetry.mac_address = address.toString().c_str();
             m_telemetry.last_update = millis();
 
-            // Request initial Device Name
+            // 1. Send Handshake & Authentication Frame (Password "123456" & "000000")
+            Serial.println("[BLE] Sending JBD Auth Handshake (0x15 Password '123456')...");
+            uint8_t authFrame123456[] = { 0xFF, 0xAA, 0x15, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x53 };
+            m_pJbdWriteChar->writeValue(authFrame123456, sizeof(authFrame123456), !m_pJbdWriteChar->canWriteNoResponse());
+
+            delay(100);
+
+            uint8_t authFrame000000[] = { 0xFF, 0xAA, 0x15, 0x06, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3B };
+            m_pJbdWriteChar->writeValue(authFrame000000, sizeof(authFrame000000), !m_pJbdWriteChar->canWriteNoResponse());
+
+            delay(100);
+
+            // 2. Send Status query (0x19)
+            uint8_t statusFrame[] = { 0xFF, 0xAA, 0x19, 0x01, 0x01, 0x1B };
+            m_pJbdWriteChar->writeValue(statusFrame, sizeof(statusFrame), !m_pJbdWriteChar->canWriteNoResponse());
+
+            delay(150);
+
+            // 3. Request initial Device Name
             sendJbdCommand(0xA5, 0x05);
             return true;
         }
     }
 
-    // Try JK Service 0xFFE0
-    NimBLERemoteService* pJkService = m_pClient->getService(NimBLEUUID("FFE0"));
+    // 2. Try JK Service (FFE0)
     if (pJkService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JK)) {
         Serial.println("[BLE] Found JK Service (0xFFE0)! Discovering characteristics...");
         m_pJkNotifyChar = nullptr;
@@ -288,7 +343,7 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
         }
     }
 
-    Serial.println("[BLE] Neither JBD (0xFF00) nor JK (0xFFE0) characteristics were usable.");
+    Serial.println("[BLE] Neither JBD (0xFF00/0xFFF0) nor JK (0xFFE0) characteristics were usable.");
     disconnect();
     return false;
 }
@@ -337,7 +392,8 @@ void BmsBleClient::sendJbdCommand(uint8_t cmd, uint8_t reg, const uint8_t* paylo
     frame[5 + len] = (uint8_t)(crc & 0xFF);
     frame[6 + len] = 0x77;
 
-    m_pJbdWriteChar->writeValue(frame, totalLen, false);
+    bool responseRequired = !m_pJbdWriteChar->canWriteNoResponse();
+    m_pJbdWriteChar->writeValue(frame, totalLen, responseRequired);
 }
 
 void BmsBleClient::handleJbdPacket(const uint8_t* data, size_t len) {
@@ -346,101 +402,121 @@ void BmsBleClient::handleJbdPacket(const uint8_t* data, size_t len) {
     // Append to buffer for potential reassembly
     m_rxBuffer.insert(m_rxBuffer.end(), data, data + len);
 
-    // Look for start 0xDD and end 0x77
-    if (m_rxBuffer.size() < 7) return;
-
-    // Find 0xDD
-    while (!m_rxBuffer.empty() && m_rxBuffer[0] != 0xDD) {
-        m_rxBuffer.erase(m_rxBuffer.begin());
-    }
-
-    if (m_rxBuffer.size() < 7) return;
-
-    uint8_t reg = m_rxBuffer[1];
-    uint8_t status = m_rxBuffer[2];
-    uint8_t dataLen = m_rxBuffer[3];
-    size_t expectedTotal = 7 + dataLen;
-
-    if (m_rxBuffer.size() < expectedTotal) {
-        return; // Waiting for more data
-    }
-
-    if (m_rxBuffer[expectedTotal - 1] != 0x77) {
-        m_rxBuffer.erase(m_rxBuffer.begin());
+    // Prevent buffer runaway
+    if (m_rxBuffer.size() > 512) {
+        m_rxBuffer.clear();
         return;
     }
 
-    m_telemetry.connected = true;
-    m_telemetry.last_update = millis();
+    // Process all complete packets in buffer
+    while (!m_rxBuffer.empty()) {
+        // 1. Check for Module Response (FF AA <cmd> <len> <data...> <chk>)
+        if (m_rxBuffer.size() >= 2 && m_rxBuffer[0] == 0xFF && m_rxBuffer[1] == 0xAA) {
+            if (m_rxBuffer.size() < 4) return; // Wait for cmd + len
+            uint8_t modCmd = m_rxBuffer[2];
+            uint8_t modLen = m_rxBuffer[3];
+            size_t totalModLen = 4 + modLen + 1;
+            if (m_rxBuffer.size() < totalModLen) return; // Wait for full payload + chk
 
-    // Parse according to register
-    if (reg == 0x03 && dataLen >= 23) {
-        // Basic Info
-        const uint8_t* p = &m_rxBuffer[4];
-        uint16_t rawV = (p[0] << 8) | p[1];
-        int16_t  rawI = (int16_t)((p[2] << 8) | p[3]);
-        uint16_t remCap = (p[4] << 8) | p[5];
-        uint16_t nomCap = (p[6] << 8) | p[7];
-        uint16_t cycles = (p[8] << 8) | p[9];
-        uint8_t  soc = p[19];
-        uint8_t  fet = p[20];
-        uint8_t  cells = p[21];
-        uint8_t  ntcCnt = p[22];
-
-        m_telemetry.total_voltage = rawV * 0.01f;
-        m_telemetry.current = rawI * 0.01f;
-        m_telemetry.power = m_telemetry.total_voltage * fabs(m_telemetry.current);
-        m_telemetry.capacity_remain = remCap * 0.01f;
-        m_telemetry.capacity_nominal = nomCap * 0.01f;
-        m_telemetry.cycle_count = cycles;
-        m_telemetry.soc = soc;
-        m_telemetry.cell_count = cells;
-
-        m_telemetry.switch_charging = (fet & 0x01) != 0;
-        m_telemetry.switch_discharging = (fet & 0x02) != 0;
-
-        if (ntcCnt >= 1 && dataLen >= 25) {
-            uint16_t t1 = (p[23] << 8) | p[24];
-            m_telemetry.temp_sensor1 = (t1 - 2731) * 0.1f;
-        }
-        if (ntcCnt >= 2 && dataLen >= 27) {
-            uint16_t t2 = (p[25] << 8) | p[26];
-            m_telemetry.temp_sensor2 = (t2 - 2731) * 0.1f;
-        }
-    } else if (reg == 0x04) {
-        // Cell Voltages
-        const uint8_t* p = &m_rxBuffer[4];
-        uint8_t numCells = dataLen / 2;
-        if (numCells > 32) numCells = 32;
-        m_telemetry.cell_count = numCells;
-
-        float minV = 99.0f, maxV = 0.0f;
-        uint8_t minIdx = 0, maxIdx = 0;
-
-        for (int i = 0; i < numCells; ++i) {
-            uint16_t mv = (p[i * 2] << 8) | p[i * 2 + 1];
-            float v = mv * 0.001f;
-            m_telemetry.cell_voltages[i] = v;
-
-            if (v < minV && v > 0.5f) { minV = v; minIdx = i + 1; }
-            if (v > maxV) { maxV = v; maxIdx = i + 1; }
+            Serial.printf("[BLE] JBD Module Response 0x%02X (len %u) received\n", modCmd, modLen);
+            m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + totalModLen);
+            continue;
         }
 
-        m_telemetry.min_cell_v = (minV == 99.0f) ? 0.0f : minV;
-        m_telemetry.max_cell_v = maxV;
-        m_telemetry.delta_cell_v = (maxV >= minV && minV > 0.0f) ? (maxV - minV) : 0.0f;
-        m_telemetry.min_cell_idx = minIdx;
-        m_telemetry.max_cell_idx = maxIdx;
-    } else if (reg == 0x05) {
-        // Device Name
-        String name = "";
-        for (int i = 0; i < dataLen; ++i) {
-            name += (char)m_rxBuffer[4 + i];
+        // 2. Find start of JBD Frame (0xDD)
+        if (m_rxBuffer[0] != 0xDD) {
+            m_rxBuffer.erase(m_rxBuffer.begin());
+            continue;
         }
-        if (name.length() > 0) m_telemetry.device_name = name;
+
+        // 3. Check for JBD Telemetry/Register Frame (DD <reg> <status> <len> ... 77)
+        if (m_rxBuffer.size() < 7) return; // Wait for minimum frame
+
+        uint8_t reg = m_rxBuffer[1];
+        uint8_t status = m_rxBuffer[2];
+        uint8_t dataLen = m_rxBuffer[3];
+        size_t expectedTotal = 7 + dataLen;
+
+        if (m_rxBuffer.size() < expectedTotal) {
+            return; // Waiting for full register data
+        }
+
+        if (m_rxBuffer[expectedTotal - 1] != 0x77) {
+            m_rxBuffer.erase(m_rxBuffer.begin());
+            continue;
+        }
+
+        m_telemetry.connected = true;
+        m_telemetry.last_update = millis();
+
+        if (reg == 0x03 && dataLen >= 23) {
+            // Basic Info
+            const uint8_t* p = &m_rxBuffer[4];
+            uint16_t rawV = (p[0] << 8) | p[1];
+            int16_t  rawI = (int16_t)((p[2] << 8) | p[3]);
+            uint16_t remCap = (p[4] << 8) | p[5];
+            uint16_t nomCap = (p[6] << 8) | p[7];
+            uint16_t cycles = (p[8] << 8) | p[9];
+            uint8_t  soc = p[19];
+            uint8_t  fet = p[20];
+            uint8_t  cells = p[21];
+            uint8_t  ntcCnt = p[22];
+
+            m_telemetry.total_voltage = rawV * 0.01f;
+            m_telemetry.current = rawI * 0.01f;
+            m_telemetry.power = m_telemetry.total_voltage * fabs(m_telemetry.current);
+            m_telemetry.capacity_remain = remCap * 0.01f;
+            m_telemetry.capacity_nominal = nomCap * 0.01f;
+            m_telemetry.cycle_count = cycles;
+            m_telemetry.soc = soc;
+            m_telemetry.cell_count = cells;
+
+            m_telemetry.switch_charging = (fet & 0x01) != 0;
+            m_telemetry.switch_discharging = (fet & 0x02) != 0;
+
+            if (ntcCnt >= 1 && dataLen >= 25) {
+                uint16_t t1 = (p[23] << 8) | p[24];
+                m_telemetry.temp_sensor1 = (t1 - 2731) * 0.1f;
+            }
+            if (ntcCnt >= 2 && dataLen >= 27) {
+                uint16_t t2 = (p[25] << 8) | p[26];
+                m_telemetry.temp_sensor2 = (t2 - 2731) * 0.1f;
+            }
+        } else if (reg == 0x04) {
+            // Cell Voltages
+            const uint8_t* p = &m_rxBuffer[4];
+            uint8_t numCells = dataLen / 2;
+            if (numCells > 32) numCells = 32;
+            m_telemetry.cell_count = numCells;
+
+            float minV = 99.0f, maxV = 0.0f;
+            uint8_t minIdx = 0, maxIdx = 0;
+
+            for (int i = 0; i < numCells; ++i) {
+                uint16_t mv = (p[i * 2] << 8) | p[i * 2 + 1];
+                float v = mv * 0.001f;
+                m_telemetry.cell_voltages[i] = v;
+
+                if (v < minV && v > 0.5f) { minV = v; minIdx = i + 1; }
+                if (v > maxV) { maxV = v; maxIdx = i + 1; }
+            }
+
+            m_telemetry.min_cell_v = (minV == 99.0f) ? 0.0f : minV;
+            m_telemetry.max_cell_v = maxV;
+            m_telemetry.delta_cell_v = (maxV >= minV && minV > 0.0f) ? (maxV - minV) : 0.0f;
+            m_telemetry.min_cell_idx = minIdx;
+            m_telemetry.max_cell_idx = maxIdx;
+        } else if (reg == 0x05) {
+            // Device Name
+            String name = "";
+            for (int i = 0; i < dataLen; ++i) {
+                name += (char)m_rxBuffer[4 + i];
+            }
+            if (name.length() > 0) m_telemetry.device_name = name;
+        }
+
+        m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + expectedTotal);
     }
-
-    m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + expectedTotal);
 }
 
 bool BmsBleClient::writeJbdFetState(uint8_t newFetMask) {
