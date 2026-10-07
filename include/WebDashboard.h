@@ -352,6 +352,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       discharging: 0,
       balancer: 0
     };
+    let userSelectedCells = null;
     let renderedCellCount = 0;
     let lastData = null;
 
@@ -380,6 +381,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
 
     function renderCellBoxes(count) {
       const grid = document.getElementById('cells-grid');
+      if (!grid) return;
       grid.innerHTML = '';
       for (let i = 1; i <= count; i++) {
         const div = document.createElement('div');
@@ -422,25 +424,26 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       document.getElementById('kpi-power').textContent = Math.round(data.power || 0) + ' W';
 
       // Dynamic Cells
-      const cellCount = data.cell_count || (data.cells ? data.cells.length : 8);
+      const cellCount = userSelectedCells || data.cell_count || (data.cells ? data.cells.length : 8);
       if (renderedCellCount !== cellCount) {
         renderCellBoxes(cellCount);
-        document.getElementById('cells-title').textContent = `${t('cells_title')} (${cellCount}S LiFePO4)`;
-        const sel = document.getElementById('cell-select');
-        if (sel) sel.value = cellCount;
       }
+      const titleEl = document.getElementById('cells-title');
+      if (titleEl) titleEl.textContent = `${t('cells_title')} (${cellCount}S LiFePO4)`;
+      const sel = document.getElementById('cell-select');
+      if (sel && String(sel.value) !== String(cellCount)) sel.value = cellCount;
 
       const vMin = 2.8, vMax = 3.65;
       for (let i = 1; i <= cellCount; i++) {
-        const v = data.cells ? (data.cells[i - 1] || 0.0) : 0.0;
+        const v = (data.cells && data.cells[i - 1] !== undefined) ? data.cells[i - 1] : 0.0;
         const vEl = document.getElementById('volts-cell-' + i);
         const barEl = document.getElementById('bar-cell-' + i);
         const boxEl = document.getElementById('box-cell-' + i);
         const tagEl = document.getElementById('tag-cell-' + i);
 
-        if (vEl) vEl.textContent = v.toFixed(3) + ' V';
+        if (vEl) vEl.textContent = (v > 0.1) ? (v.toFixed(3) + ' V') : '-.--- V';
         if (barEl) {
-          const pct = Math.max(0, Math.min(100, ((v - vMin) / (vMax - vMin)) * 100));
+          const pct = (v > 0.1) ? Math.max(0, Math.min(100, ((v - vMin) / (vMax - vMin)) * 100)) : 0;
           barEl.style.width = pct + '%';
         }
 
@@ -449,11 +452,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
           tagEl.className = 'cell-tag';
           tagEl.textContent = '';
 
-          if (i === data.min_cell_idx && data.min_cell_idx > 0) {
+          if (i === data.min_cell_idx && data.min_cell_idx > 0 && i <= cellCount) {
             boxEl.classList.add('min-cell');
             tagEl.classList.add('tag-min');
             tagEl.textContent = 'MIN';
-          } else if (i === data.max_cell_idx && data.max_cell_idx > 0) {
+          } else if (i === data.max_cell_idx && data.max_cell_idx > 0 && i <= cellCount) {
             boxEl.classList.add('max-cell');
             tagEl.classList.add('tag-max');
             tagEl.textContent = 'MAX';
@@ -584,13 +587,18 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
 
     async function changeCells(num) {
+      const val = parseInt(num);
+      userSelectedCells = val;
+      renderCellBoxes(val);
+      const titleEl = document.getElementById('cells-title');
+      if (titleEl) titleEl.textContent = `${t('cells_title')} (${val}S LiFePO4)`;
+      if (lastData) updateUi(lastData);
       try {
         await fetch('/api/set-cells', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cells: parseInt(num) })
+          body: JSON.stringify({ cells: val })
         });
-        fetchData();
       } catch (e) {
         console.error(e);
       }

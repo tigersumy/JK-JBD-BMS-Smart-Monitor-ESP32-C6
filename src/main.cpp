@@ -127,13 +127,12 @@ void setupHttpRoutes() {
         doc["cycle_count"] = telem.cycle_count;
 
         // Cells
-        uint8_t count = telem.cell_count > 0 ? telem.cell_count : g_config.cell_count;
-        if (count == 0) count = 8;
+        uint8_t count = g_config.cell_count > 0 ? g_config.cell_count : (telem.cell_count > 0 ? telem.cell_count : 8);
         doc["cell_count"] = count;
 
         JsonArray cellsArr = doc["cells"].to<JsonArray>();
         for (uint8_t i = 0; i < count; i++) {
-            cellsArr.add(telem.cell_voltages[i]);
+            cellsArr.add(i < 32 ? telem.cell_voltages[i] : 0.0f);
         }
 
         doc["min_cell_idx"] = telem.min_cell_idx;
