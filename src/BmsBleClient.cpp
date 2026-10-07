@@ -149,20 +149,20 @@ void BmsBleClient::loop() {
     }
 
     // Auto-connect if not connected and not scanning
-    if (!m_isConnected && !m_isScanning && (now - m_lastConnectAttempt > 5000)) {
+    if (!m_isConnected && !m_isScanning && (now - m_lastConnectAttempt > 4000)) {
         m_lastConnectAttempt = now;
 
         if (m_config.bms_mac.length() > 0) {
             unsigned int firstByte = 0;
             sscanf(m_config.bms_mac.c_str(), "%02x", &firstByte);
+            static bool s_tryAlt = false;
             uint8_t primaryType = ((firstByte & 0xC0) == 0xC0) ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
             uint8_t secondaryType = (primaryType == BLE_ADDR_PUBLIC) ? BLE_ADDR_RANDOM : BLE_ADDR_PUBLIC;
+            uint8_t useType = s_tryAlt ? secondaryType : primaryType;
+            s_tryAlt = !s_tryAlt;
 
-            NimBLEAddress targetAddr(std::string(m_config.bms_mac.c_str()), primaryType);
-            if (!connectToDevice(targetAddr, m_config.bms_name, m_config.bms_type)) {
-                NimBLEAddress altAddr(std::string(m_config.bms_mac.c_str()), secondaryType);
-                connectToDevice(altAddr, m_config.bms_name, m_config.bms_type);
-            }
+            NimBLEAddress targetAddr(std::string(m_config.bms_mac.c_str()), useType);
+            connectToDevice(targetAddr, m_config.bms_name, m_config.bms_type);
         } else {
             // Auto search for known devices
             for (const auto& dev : m_discoveredDevices) {
@@ -209,7 +209,7 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
         m_pClient = NimBLEDevice::createClient();
         m_pClient->setClientCallbacks(new BmsClientCallbacks(), false);
         m_pClient->setConnectionParams(12, 12, 0, 200);
-        m_pClient->setConnectTimeout(6000);
+        m_pClient->setConnectTimeout(2000);
     }
 
     bool ok = m_pClient->connect(address, false);

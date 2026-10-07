@@ -58,7 +58,7 @@ void setupWifi() {
         IPAddress gateway(192, 168, 4, 1);
         IPAddress subnet(255, 255, 255, 0);
         WiFi.softAPConfig(apIP, gateway, subnet);
-        bool apOk = WiFi.softAP("BMS-Monitor-AP", "", 1, 0, 4);
+        bool apOk = WiFi.softAP("BMS-Monitor-AP", nullptr, 1, 0, 4);
         delay(200);
         Serial.printf("[WiFi] AP status: %s, AP IP address: %s\n", apOk ? "OK" : "ERR", WiFi.softAPIP().toString().c_str());
 
