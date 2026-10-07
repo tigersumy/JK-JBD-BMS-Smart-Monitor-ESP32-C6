@@ -270,17 +270,33 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
             m_telemetry.mac_address = address.toString().c_str();
             m_telemetry.last_update = millis();
 
-            // 1. Send Handshake & Authentication Frame (Password "123456" & "000000")
-            Serial.println("[BLE] Sending JBD Auth Handshake (0x15 Password '123456')...");
+            // 1. Send Handshake & Authentication Frame (Configured PIN + standard fallbacks)
+            if (m_config.bms_pin.length() >= 4) {
+                uint8_t pinLen = m_config.bms_pin.length();
+                if (pinLen > 16) pinLen = 16;
+                uint8_t customPinFrame[32];
+                customPinFrame[0] = 0xFF;
+                customPinFrame[1] = 0xAA;
+                customPinFrame[2] = 0x15;
+                customPinFrame[3] = pinLen;
+                uint8_t sum = 0x15 + pinLen;
+                for (size_t i = 0; i < pinLen; ++i) {
+                    customPinFrame[4 + i] = m_config.bms_pin[i];
+                    sum += m_config.bms_pin[i];
+                }
+                customPinFrame[4 + pinLen] = sum;
+                Serial.printf("[BLE] Sending Configured JBD PIN Auth ('%s')...\n", m_config.bms_pin.c_str());
+                m_pJbdWriteChar->writeValue(customPinFrame, 4 + pinLen + 1, !m_pJbdWriteChar->canWriteNoResponse());
+                delay(80);
+            }
+
             uint8_t authFrame123456[] = { 0xFF, 0xAA, 0x15, 0x06, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x53 };
             m_pJbdWriteChar->writeValue(authFrame123456, sizeof(authFrame123456), !m_pJbdWriteChar->canWriteNoResponse());
-
-            delay(100);
+            delay(80);
 
             uint8_t authFrame000000[] = { 0xFF, 0xAA, 0x15, 0x06, 0x30, 0x30, 0x30, 0x30, 0x30, 0x30, 0x3B };
             m_pJbdWriteChar->writeValue(authFrame000000, sizeof(authFrame000000), !m_pJbdWriteChar->canWriteNoResponse());
-
-            delay(100);
+            delay(80);
 
             // 2. Send Status query (0x19)
             uint8_t statusFrame[] = { 0xFF, 0xAA, 0x19, 0x01, 0x01, 0x1B };
