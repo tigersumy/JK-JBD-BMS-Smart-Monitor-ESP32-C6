@@ -4,6 +4,7 @@
 #include <DNSServer.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
+#include <Update.h>
 
 #include "Config.h"
 #include "BmsBleClient.h"
@@ -290,6 +291,32 @@ void setupHttpRoutes() {
         Serial.println("[Config] New settings saved. Restarting ESP32...");
         delay(500);
         ESP.restart();
+    });
+
+    // OTA Firmware Update
+    server.on("/update", HTTP_POST, []() {
+        server.sendHeader("Connection", "close");
+        server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+        delay(500);
+        ESP.restart();
+    }, []() {
+        HTTPUpload& upload = server.upload();
+        if (upload.status == UPLOAD_FILE_START) {
+            Serial.printf("[OTA] Update starting: %s\n", upload.filename.c_str());
+            if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+                Update.printError(Serial);
+            }
+        } else if (upload.status == UPLOAD_FILE_WRITE) {
+            if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+                Update.printError(Serial);
+            }
+        } else if (upload.status == UPLOAD_FILE_END) {
+            if (Update.end(true)) {
+                Serial.printf("[OTA] Update Success: %u bytes\n", (unsigned int)upload.totalSize);
+            } else {
+                Update.printError(Serial);
+            }
+        }
     });
 
     server.begin();
