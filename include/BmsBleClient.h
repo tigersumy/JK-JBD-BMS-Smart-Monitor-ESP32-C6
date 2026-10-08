@@ -21,7 +21,14 @@ public:
     void loop();
 
     void setTargetConfig(const AppConfig& cfg);
-    const BmsTelemetry& getTelemetry() const { return m_telemetry; }
+    BmsTelemetry getTelemetry() {
+        if (m_mutex && xSemaphoreTake(m_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+            BmsTelemetry copy = m_telemetry;
+            xSemaphoreGive(m_mutex);
+            return copy;
+        }
+        return m_telemetry;
+    }
     const AppConfig& getConfig() const { return m_config; }
 
     // Control functions
@@ -39,6 +46,7 @@ public:
     String getDiscoveredDevicesJson();
 
 private:
+    SemaphoreHandle_t m_mutex = nullptr;
     AppConfig m_config;
     BmsTelemetry m_telemetry;
 

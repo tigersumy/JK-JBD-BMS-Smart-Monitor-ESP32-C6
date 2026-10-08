@@ -110,6 +110,9 @@ BmsBleClient::BmsBleClient() {
 }
 
 bool BmsBleClient::init() {
+    if (!m_mutex) {
+        m_mutex = xSemaphoreCreateMutex();
+    }
     NimBLEDevice::init("BMS-Web-Monitor");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
     NimBLEDevice::setSecurityAuth(true, true, false);
@@ -145,9 +148,9 @@ String BmsBleClient::performScanSync(uint32_t durationSeconds) {
     NimBLEScan* pScan = NimBLEDevice::getScan();
     pScan->clearResults();
     pScan->setActiveScan(true);
-    pScan->setInterval(100);
-    pScan->setWindow(90);
-    Serial.printf("[BLE] Starting intensive active scan for %u seconds...\n", durationSeconds);
+    pScan->setInterval(160);
+    pScan->setWindow(50); // ~30% duty cycle so Wi-Fi stays responsive
+    Serial.printf("[BLE] Starting active scan for %u seconds...\n", (unsigned int)durationSeconds);
     NimBLEScanResults results = pScan->getResults(durationSeconds * 1000, false);
     Serial.printf("[BLE] Scan complete. Found %d devices.\n", results.getCount());
     m_isScanning = false;
@@ -241,19 +244,14 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
     if (m_pClient == nullptr) {
         m_pClient = NimBLEDevice::createClient();
         m_pClient->setClientCallbacks(new BmsClientCallbacks(), false);
-        m_pClient->setConnectionParams(12, 12, 0, 200);
-        m_pClient->setConnectTimeout(2000);
+        m_pClient->setConnectionParams(24, 48, 0, 400); // 30ms - 60ms interval, 4s timeout (Optimal for Wi-Fi coexistence)
+        m_pClient->setConnectTimeout(1500);
     }
 
     bool ok = m_pClient->connect(address, false);
     if (!ok) {
         Serial.println("[BLE] Failed to connect with given address type.");
         return false;
-    }
-
-    if (m_config.bms_pin.length() > 0) {
-        Serial.printf("[BLE] Securing connection with Passkey: %s\n", m_config.bms_pin.c_str());
-        m_pClient->secureConnection();
     }
 
     Serial.println("[BLE] Connected! Discovering services...");
@@ -279,6 +277,10 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
     // 1. Try JBD Service (FF00 / FFF0 / 128-bit)
     if (pJbdService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JBD)) {
         Serial.printf("[BLE] Connecting to JBD Service (%s)...\n", pJbdService->getUUID().toString().c_str());
+        if (m_config.bms_pin.length() > 0) {
+            Serial.printf("[BLE] Securing JBD connection with Passkey: %s\n", m_config.bms_pin.c_str());
+            m_pClient->secureConnection();
+        }
         m_pJbdNotifyChar = nullptr;
         m_pJbdWriteChar  = nullptr;
 

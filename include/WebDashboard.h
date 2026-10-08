@@ -554,6 +554,8 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       } catch (e) {
         document.getElementById('status-dot').className = 'dot';
         document.getElementById('status-text').textContent = t('st_server_err');
+      } finally {
+        setTimeout(fetchData, 1200);
       }
     }
 
@@ -582,8 +584,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       }
       setTimeout(() => { 
         updatingSw = false; 
-        fetchData(); 
-      }, 1500);
+      }, 1000);
     }
 
     async function changeCells(num) {
@@ -605,7 +606,6 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     }
 
     setLang(currentLang);
-    setInterval(fetchData, 1500);
     fetchData();
   </script>
 </body>

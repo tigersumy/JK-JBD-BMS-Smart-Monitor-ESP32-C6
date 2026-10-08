@@ -221,7 +221,7 @@ void setupHttpRoutes() {
 
     // API: Wi-Fi Scanner
     server.on("/api/scan-wifi", HTTP_GET, []() {
-        int n = WiFi.scanNetworks();
+        int n = WiFi.scanNetworks(false, false, false, 150);
         JsonDocument doc;
         JsonArray arr = doc.to<JsonArray>();
         for (int i = 0; i < n; ++i) {
@@ -230,6 +230,7 @@ void setupHttpRoutes() {
             obj["rssi"] = WiFi.RSSI(i);
             obj["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
         }
+        WiFi.scanDelete();
         String response;
         serializeJson(doc, response);
         server.send(200, "application/json", response);
@@ -237,7 +238,7 @@ void setupHttpRoutes() {
 
     // API: BLE Scanner
     server.on("/api/scan-ble", HTTP_GET, []() {
-        String json = g_bleClient.performScanSync(6);
+        String json = g_bleClient.performScanSync(3);
         server.send(200, "application/json", json);
     });
 
@@ -369,6 +370,14 @@ void handleButton() {
     }
 }
 
+static void bleWorkerTask(void* param) {
+    Serial.println("[FreeRTOS] BLE Worker Task started (8KB stack)");
+    while (true) {
+        g_bleClient.loop();
+        vTaskDelay(pdMS_TO_TICKS(15));
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     delay(1000);
@@ -391,6 +400,9 @@ void setup() {
     setupWifi();
     setupHttpRoutes();
 
+    // Start BLE background FreeRTOS task so WebServer is NEVER blocked by BLE
+    xTaskCreate(bleWorkerTask, "ble_worker", 8192, NULL, 1, NULL);
+
     Serial.println("[System] Initialization complete. BOOT button: Short click = Reconnect BLE, Long click (>3s) = Factory Reset.");
 }
 
@@ -400,6 +412,5 @@ void loop() {
         dnsServer.processNextRequest();
     }
     server.handleClient();
-    g_bleClient.loop();
     delay(2);
 }
