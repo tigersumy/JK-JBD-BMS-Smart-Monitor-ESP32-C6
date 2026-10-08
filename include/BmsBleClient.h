@@ -22,6 +22,7 @@ public:
 
     void setTargetConfig(const AppConfig& cfg);
     const BmsTelemetry& getTelemetry() const { return m_telemetry; }
+    const AppConfig& getConfig() const { return m_config; }
 
     // Control functions
     bool setCharging(bool enable);

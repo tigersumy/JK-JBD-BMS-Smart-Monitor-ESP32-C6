@@ -17,6 +17,37 @@ class BmsClientCallbacks : public NimBLEClientCallbacks {
             s_pInstance->disconnect();
         }
     }
+
+    void onPassKeyEntry(NimBLEConnInfo& connInfo) override {
+        uint32_t pin = 123456;
+        if (s_pInstance && s_pInstance->getConfig().bms_pin.length() > 0) {
+            pin = s_pInstance->getConfig().bms_pin.toInt();
+        }
+        Serial.printf("[SEC] BLE Passkey requested by peripheral -> injecting PIN: %u\n", (unsigned int)pin);
+        NimBLEDevice::injectPassKey(connInfo, pin);
+    }
+
+    uint32_t onPassKeyDisplay(NimBLEConnInfo& connInfo) override {
+        uint32_t pin = 123456;
+        if (s_pInstance && s_pInstance->getConfig().bms_pin.length() > 0) {
+            pin = s_pInstance->getConfig().bms_pin.toInt();
+        }
+        Serial.printf("[SEC] BLE Passkey display -> returning PIN: %u\n", (unsigned int)pin);
+        return pin;
+    }
+
+    void onAuthenticationComplete(NimBLEConnInfo& connInfo) override {
+        if (connInfo.isEncrypted()) {
+            Serial.println("[SEC] BLE Pairing / Authentication SUCCESSFUL (Encrypted link established)");
+        } else {
+            Serial.println("[SEC] BLE Pairing finished (Unencrypted link)");
+        }
+    }
+
+    void onConfirmPasskey(NimBLEConnInfo& connInfo, uint32_t pin) override {
+        Serial.printf("[SEC] BLE Confirm Passkey PIN: %u\n", (unsigned int)pin);
+        NimBLEDevice::injectConfirmPasskey(connInfo, true);
+    }
 };
 
 class BmsScanCallbacks : public NimBLEScanCallbacks {
@@ -56,7 +87,7 @@ class BmsScanCallbacks : public NimBLEScanCallbacks {
         d.addr_type = advertisedDevice->getAddress().getType();
         s_pInstance->m_discoveredDevices.push_back(d);
 
-        Serial.printf("[SCAN] Discovered: %s [%s] RSSI:%d Type:%s\n", 
+        Serial.printf("[SCAN] Discovered: %s [%s] RSSI:%d Type:%s\n",
                       d.name.c_str(), addr.c_str(), rssi, type.c_str());
     }
 
@@ -81,7 +112,9 @@ BmsBleClient::BmsBleClient() {
 bool BmsBleClient::init() {
     NimBLEDevice::init("BMS-Web-Monitor");
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-    NimBLEDevice::setSecurityAuth(false, false, false);
+    NimBLEDevice::setSecurityAuth(true, true, false);
+    NimBLEDevice::setSecurityIOCap(BLE_HS_IO_KEYBOARD_ONLY);
+    NimBLEDevice::setSecurityPasskey(123456);
     NimBLEScan* pScan = NimBLEDevice::getScan();
     pScan->setScanCallbacks(new BmsScanCallbacks());
     pScan->setActiveScan(true);
@@ -216,6 +249,11 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
     if (!ok) {
         Serial.println("[BLE] Failed to connect with given address type.");
         return false;
+    }
+
+    if (m_config.bms_pin.length() > 0) {
+        Serial.printf("[BLE] Securing connection with Passkey: %s\n", m_config.bms_pin.c_str());
+        m_pClient->secureConnection();
     }
 
     Serial.println("[BLE] Connected! Discovering services...");
