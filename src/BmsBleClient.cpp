@@ -389,7 +389,10 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
             // 1. Handshake session with DeviceInfo (0x97)
             Serial.println("[BLE] Sending JK Handshake Request (0x97)...");
             auto frameDev = buildJkFrame(0x97, 0, 0);
-            m_pJkNotifyChar->writeValue(frameDev.data(), frameDev.size(), false);
+            NimBLERemoteCharacteristic* writeChar = m_pJkWriteChar ? m_pJkWriteChar : m_pJkNotifyChar;
+            if (writeChar) {
+                writeChar->writeValue(frameDev.data(), frameDev.size(), false);
+            }
 
             delay(250);
 
@@ -610,7 +613,7 @@ std::vector<uint8_t> BmsBleClient::buildJkFrame(uint8_t address, uint32_t value,
 
 void BmsBleClient::sendJkPollRequest() {
     if (!m_isConnected) return;
-    NimBLERemoteCharacteristic* target = m_pJkNotifyChar ? m_pJkNotifyChar : m_pJkWriteChar;
+    NimBLERemoteCharacteristic* target = m_pJkWriteChar ? m_pJkWriteChar : m_pJkNotifyChar;
     if (!target) return;
     auto frame = buildJkFrame(0x96, 0, 0);
     target->writeValue(frame.data(), frame.size(), false);
