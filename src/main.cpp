@@ -5,6 +5,7 @@
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <Update.h>
+#include <nvs_flash.h>
 
 #include "Config.h"
 #include "BmsBleClient.h"
