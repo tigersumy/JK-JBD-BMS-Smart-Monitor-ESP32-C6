@@ -82,9 +82,11 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
     .cell-box { background: rgba(13, 17, 23, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center; position: relative; overflow: hidden; }
     .cell-box.min-cell { border-color: var(--accent-blue); box-shadow: inset 0 0 8px rgba(88,166,255,0.2); }
     .cell-box.max-cell { border-color: var(--accent-green); box-shadow: inset 0 0 8px rgba(63,185,80,0.2); }
+    .cell-box.bal-cell { border-color: var(--accent-cyan); box-shadow: 0 0 10px rgba(56,189,248,0.35); }
     .cell-tag { position: absolute; top: 5px; right: 6px; font-size: 0.65rem; font-weight: 700; padding: 2px 5px; border-radius: 4px; text-transform: uppercase; }
     .tag-min { background: rgba(88,166,255,0.2); color: var(--accent-blue); }
     .tag-max { background: rgba(63,185,80,0.2); color: var(--accent-green); }
+    .tag-bal { background: rgba(56,189,248,0.25); color: var(--accent-cyan); }
     .cell-num { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; }
     .cell-volts { font-size: 1.22rem; font-weight: 700; color: #fff; margin-bottom: 6px; }
     .cell-bar-bg { width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; }
@@ -452,14 +454,22 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
           tagEl.className = 'cell-tag';
           tagEl.textContent = '';
 
+          const isBal = (data.balancing_mask !== undefined) && !!(data.balancing_mask & (1 << (i - 1)));
+          if (isBal) {
+            boxEl.classList.add('bal-cell');
+          }
+
           if (i === data.min_cell_idx && data.min_cell_idx > 0 && i <= cellCount) {
             boxEl.classList.add('min-cell');
             tagEl.classList.add('tag-min');
-            tagEl.textContent = 'MIN';
+            tagEl.textContent = isBal ? '⚖️ MIN' : 'MIN';
           } else if (i === data.max_cell_idx && data.max_cell_idx > 0 && i <= cellCount) {
             boxEl.classList.add('max-cell');
             tagEl.classList.add('tag-max');
-            tagEl.textContent = 'MAX';
+            tagEl.textContent = isBal ? '⚖️ MAX' : 'MAX';
+          } else if (isBal) {
+            tagEl.classList.add('tag-bal');
+            tagEl.textContent = '⚖️ BAL';
           }
         }
       }

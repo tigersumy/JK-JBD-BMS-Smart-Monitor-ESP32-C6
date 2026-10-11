@@ -150,6 +150,7 @@ void setupHttpRoutes() {
 
         // Balancer & Switches
         doc["balancing_active"] = telem.balancing_active;
+        doc["balancing_mask"] = telem.balancing_mask;
         doc["balancing_current"] = telem.balancing_current;
         doc["switch_charging"] = telem.switch_charging;
         doc["switch_discharging"] = telem.switch_discharging;

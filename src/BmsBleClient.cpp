@@ -222,7 +222,10 @@ void BmsBleClient::loop() {
 
         if (m_telemetry.bms_type == "JBD-BMS") {
             // Alternate between Basic Info (0x03) and Cell Voltages (0x04)
-            if (m_pollStep % 2 == 0) {
+            // Periodically request Device Name (0x05) if not yet fetched
+            if (m_pollStep % 10 == 9 && (m_telemetry.device_name.length() == 0 || m_telemetry.device_name == "JBD-BMS")) {
+                sendJbdCommand(0xA5, 0x05); // Request Device Name
+            } else if (m_pollStep % 2 == 0) {
                 sendJbdCommand(0xA5, 0x03); // Request Basic Info
             } else {
                 sendJbdCommand(0xA5, 0x04); // Request Cell Voltages
@@ -541,6 +544,43 @@ void BmsBleClient::handleJbdPacket(const uint8_t* data, size_t len) {
                 uint16_t t2 = (p[25] << 8) | p[26];
                 m_telemetry.temp_sensor2 = (t2 - 2731) * 0.1f;
             }
+
+            // 1. Balancing Bitmask (bytes 12..15: bit 0 = Cell 1, bit 1 = Cell 2, etc.)
+            uint32_t balMask = 0;
+            if (dataLen >= 14) {
+                balMask = ((uint32_t)p[12] << 8) | p[13];
+                if (dataLen >= 16 && (p[14] != 0 || p[15] != 0)) {
+                    balMask |= (((uint32_t)p[14] << 24) | ((uint32_t)p[15] << 16));
+                }
+            }
+            m_telemetry.balancing_mask = balMask;
+            m_telemetry.balancing_active = (balMask != 0);
+
+            // 2. Protection / Alarm Status Flags (bytes 16..17)
+            if (dataLen >= 18) {
+                uint16_t errMask = (p[16] << 8) | p[17];
+                m_telemetry.raw_errors = errMask;
+                if (errMask == 0) {
+                    m_telemetry.errors_str = "OK";
+                } else {
+                    String errs = "";
+                    if (errMask & (1 << 0)) errs += "Перенапруга комірки (COVP); ";
+                    if (errMask & (1 << 1)) errs += "Знижена напруга комірки (CUVP); ";
+                    if (errMask & (1 << 2)) errs += "Перенапруга батареї (POVP); ";
+                    if (errMask & (1 << 3)) errs += "Знижена напруга батареї (PUVP); ";
+                    if (errMask & (1 << 4)) errs += "Перегрів заряду (CHGOT); ";
+                    if (errMask & (1 << 5)) errs += "Переохолодження заряду (CHGUT); ";
+                    if (errMask & (1 << 6)) errs += "Перегрів розряду (DSGOT); ";
+                    if (errMask & (1 << 7)) errs += "Переохолодження розряду (DSGUT); ";
+                    if (errMask & (1 << 8)) errs += "Струм заряду (CHGOC); ";
+                    if (errMask & (1 << 9)) errs += "Струм розряду (DSGOC); ";
+                    if (errMask & (1 << 10)) errs += "Коротке замикання (SC); ";
+                    if (errMask & (1 << 11)) errs += "Помилка AFE/IC; ";
+                    if (errMask & (1 << 12)) errs += "Блокування MOS; ";
+                    errs.trim();
+                    m_telemetry.errors_str = errs;
+                }
+            }
         } else if (reg == 0x04) {
             // Cell Voltages
             const uint8_t* p = &m_rxBuffer[4];
@@ -569,9 +609,14 @@ void BmsBleClient::handleJbdPacket(const uint8_t* data, size_t len) {
             // Device Name
             String name = "";
             for (int i = 0; i < dataLen; ++i) {
-                name += (char)m_rxBuffer[4 + i];
+                char c = (char)m_rxBuffer[4 + i];
+                if (c >= 32 && c <= 126) name += c;
             }
-            if (name.length() > 0) m_telemetry.device_name = name;
+            name.trim();
+            if (name.length() > 0) {
+                m_telemetry.device_name = name;
+                Serial.printf("[BLE] Updated JBD Device Name from 0x05: '%s'\n", name.c_str());
+            }
         }
 
         m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + expectedTotal);

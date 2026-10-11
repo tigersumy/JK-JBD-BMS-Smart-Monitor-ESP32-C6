@@ -34,6 +34,7 @@ struct BmsTelemetry {
 
     // Balancer
     bool     balancing_active   = false;
+    uint32_t balancing_mask     = 0;
     float    balancing_current  = 0.0f; // A
 
     // Switches
