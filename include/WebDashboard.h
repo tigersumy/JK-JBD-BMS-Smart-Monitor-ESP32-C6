@@ -254,6 +254,10 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
           <span class="param-val" id="val-cycles">--</span>
         </div>
         <div class="param-row">
+          <span class="param-name" data-i18n="stat_prod_date">📅 Production Date</span>
+          <span class="param-val" id="val-prod-date">--</span>
+        </div>
+        <div class="param-row">
           <span class="param-name" data-i18n="stat_errors">⚠️ Status / Alarms</span>
           <span class="param-val val-green" id="val-errors">OK</span>
         </div>
@@ -297,6 +301,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         stat_nom_ah: "⚡ Nominal Pack Capacity",
         stat_bal_curr: "🔄 Balancer Current / State",
         stat_cycles: "🔄 Full Cycles Count",
+        stat_prod_date: "📅 Production Date",
         stat_errors: "⚠️ Status / Alarms",
         stat_heap: "🧠 ESP32-C6 Free Heap",
         stat_wifi_rssi: "📶 Wi-Fi Signal",
@@ -334,6 +339,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         stat_nom_ah: "⚡ Номінальна ємність",
         stat_bal_curr: "🔄 Стан / Струм балансира",
         stat_cycles: "🔄 Кількість повних циклів",
+        stat_prod_date: "📅 Дата виробництва",
         stat_errors: "⚠️ Статус / Помилки BMS",
         stat_heap: "🧠 Вільна пам'ять (Heap)",
         stat_wifi_rssi: "📶 Рівень сигналу Wi-Fi",
@@ -504,6 +510,9 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       document.getElementById('val-nom-ah').textContent = (data.capacity_nominal || 0.0).toFixed(1) + ' Ah';
       document.getElementById('val-bal-curr').textContent = data.balancing_active ? (data.balancing_current > 0 ? (data.balancing_current.toFixed(2) + ' A') : 'Active') : 'Idle';
       document.getElementById('val-cycles').textContent = data.cycle_count || 0;
+      if (document.getElementById('val-prod-date')) {
+        document.getElementById('val-prod-date').textContent = data.prod_date || '--';
+      }
       
       const errEl = document.getElementById('val-errors');
       errEl.textContent = data.errors || 'OK';

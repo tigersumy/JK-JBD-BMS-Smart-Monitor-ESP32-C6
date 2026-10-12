@@ -45,4 +45,5 @@ struct BmsTelemetry {
     // Alarms / Status
     uint32_t raw_errors         = 0;
     String   errors_str         = "OK";
+    String   prod_date          = "";
 };

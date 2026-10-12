@@ -508,6 +508,26 @@ void BmsBleClient::handleJbdPacket(const uint8_t* data, size_t len) {
             continue;
         }
 
+        // 4. Verify JBD CRC-16: 0x10000 - sum(bytes from status through payload)
+        uint32_t rxSum = 0;
+        for (size_t i = 2; i < expectedTotal - 3; ++i) {
+            rxSum += m_rxBuffer[i];
+        }
+        uint16_t expectedCrc = (uint16_t)(0x10000 - rxSum);
+        uint16_t packetCrc = ((uint16_t)m_rxBuffer[expectedTotal - 3] << 8) | m_rxBuffer[expectedTotal - 2];
+        if (expectedCrc != packetCrc) {
+            Serial.printf("[BLE] JBD CRC mismatch for Reg 0x%02X: got 0x%04X, expected 0x%04X\n", reg, packetCrc, expectedCrc);
+            m_rxBuffer.erase(m_rxBuffer.begin());
+            continue;
+        }
+
+        // 5. Check response status (0x00 = Success)
+        if (status != 0x00) {
+            Serial.printf("[BLE] JBD Reg 0x%02X returned error status: 0x%02X\n", reg, status);
+            m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + expectedTotal);
+            continue;
+        }
+
         m_telemetry.connected = true;
         m_telemetry.last_update = millis();
 
@@ -536,13 +556,33 @@ void BmsBleClient::handleJbdPacket(const uint8_t* data, size_t len) {
             m_telemetry.switch_charging = (fet & 0x01) != 0;
             m_telemetry.switch_discharging = (fet & 0x02) != 0;
 
+            // Production Date: Year = (raw >> 9) + 2000, Month = (raw >> 5) & 0x0F, Day = raw & 0x1F
+            if (dataLen >= 12) {
+                uint16_t pDate = (p[10] << 8) | p[11];
+                if (pDate != 0) {
+                    uint16_t year = (pDate >> 9) + 2000;
+                    uint8_t month = (pDate >> 5) & 0x0F;
+                    uint8_t day = pDate & 0x1F;
+                    char dBuf[16];
+                    snprintf(dBuf, sizeof(dBuf), "%04u-%02u-%02u", year, month, day);
+                    m_telemetry.prod_date = String(dBuf);
+                }
+            }
+
+            // Temperature sensors (NTC 1, NTC 2, and NTC 3 - MOSFET temperature)
             if (ntcCnt >= 1 && dataLen >= 25) {
                 uint16_t t1 = (p[23] << 8) | p[24];
                 m_telemetry.temp_sensor1 = (t1 - 2731) * 0.1f;
+                m_telemetry.temp_mos = m_telemetry.temp_sensor1;
             }
             if (ntcCnt >= 2 && dataLen >= 27) {
                 uint16_t t2 = (p[25] << 8) | p[26];
                 m_telemetry.temp_sensor2 = (t2 - 2731) * 0.1f;
+                m_telemetry.temp_mos = m_telemetry.temp_sensor2;
+            }
+            if (ntcCnt >= 3 && dataLen >= 29) {
+                uint16_t t3 = (p[27] << 8) | p[28];
+                m_telemetry.temp_mos = (t3 - 2731) * 0.1f;
             }
 
             // 1. Balancing Bitmask (bytes 12..15: bit 0 = Cell 1, bit 1 = Cell 2, etc.)

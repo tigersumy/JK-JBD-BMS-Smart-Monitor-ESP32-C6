@@ -127,6 +127,7 @@ void setupHttpRoutes() {
         doc["capacity_remain"] = telem.capacity_remain;
         doc["capacity_nominal"] = telem.capacity_nominal;
         doc["cycle_count"] = telem.cycle_count;
+        doc["prod_date"] = telem.prod_date;
 
         // Cells
         uint8_t count = g_config.cell_count > 0 ? g_config.cell_count : (telem.cell_count > 0 ? telem.cell_count : 8);
