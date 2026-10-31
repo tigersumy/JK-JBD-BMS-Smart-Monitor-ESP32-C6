@@ -55,6 +55,9 @@ private:
     NimBLERemoteCharacteristic* m_pJbdWriteChar  = nullptr;
     NimBLERemoteCharacteristic* m_pJkNotifyChar  = nullptr;
     NimBLERemoteCharacteristic* m_pJkWriteChar   = nullptr;
+    NimBLERemoteCharacteristic* m_pDalyNotifyChar = nullptr;
+    NimBLERemoteCharacteristic* m_pDalyWriteChar  = nullptr;
+    bool                        m_dalyWriteWithResponse = false;
 
     bool m_isConnected = false;
     bool m_isScanning  = false;
@@ -81,6 +84,12 @@ private:
     void decodeJkSettings(const std::vector<uint8_t>& data);
     void sendJkPollRequest();
     bool writeJkRegister(uint8_t reg, uint32_t value, uint8_t length = 4);
+
+    // Daly protocol handlers
+    static uint8_t calcDalyChecksum(const uint8_t* buf, size_t len);
+    void sendDalyCommand(uint8_t cmdId, const uint8_t* payload = nullptr);
+    void handleDalyPacket(const uint8_t* data, size_t len);
+    void decodeDalyTelemetry(uint8_t cmdId, const uint8_t* payload);
 
     // BLE Callbacks
     friend class BmsScanCallbacks;

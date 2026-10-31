@@ -1,7 +1,7 @@
 # JK-JBD-BMS-Smart-Monitor-ESP32-C6
 
 [![ESP32-C6](https://img.shields.io/badge/MCU-ESP32--C6%20%2F%20ESP32--S3-blue.svg)](https://www.espressif.com/)
-[![Protocol](https://img.shields.io/badge/Protocols-JK--BMS%20%7C%20JBD--BMS-brightgreen.svg)]()
+[![Protocol](https://img.shields.io/badge/Protocols-JK--BMS%20%7C%20JBD--BMS%20%7C%20Daly--BMS-brightgreen.svg)]()
 [![Framework](https://img.shields.io/badge/Framework-Arduino%20%2F%20PlatformIO-orange.svg)](https://platformio.org/)
 [![UI](https://img.shields.io/badge/WebUI-Dark%20SPA%20(UA%20%2F%20EN)-purple.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -10,15 +10,16 @@
 
 **Універсальний, повністю автономний розумний BLE-шлюз та локальний веб-монітор для акумуляторних батарей (LiFePO4 / Li-ion / LTO) на базі мікроконтролера ESP32-C6 (із підтримкою ESP32-S3).**
 
-Підтримує одночасно два найпопулярніших протоколи BMS: **JK-BMS (JiKong)** та **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar)** із вбудованою функцією автовизначення протоколу.
+Підтримує одночасно три найпопулярніших протоколи BMS: **JK-BMS (JiKong)**, **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar)** та **Daly Smart BMS** із вбудованою функцією автовизначення протоколу.
 
 ---
 
 ## ⚡ Головні особливості
 
-* 🔄 **Універсальна підтримка протоколів (Dual BMS Protocol)**:
+* 🔄 **Універсальна підтримка протоколів (Tri-BMS Protocol: JK, JBD, Daly)**:
   * **JBD-BMS / Xiaoxiang / Overkill Solar**: робота через BLE Service `0xFF00`, підтримка запитів Basic Info (`0x03`), напруг комірок (`0x04`), імені пристрою (`0x05`), перевірка 16-бітного CRC та керування MOSFET-ключами (`0xE1`).
   * **JK-BMS / JiKong**: робота через BLE Service `0xFFE0`, декодування повного фрейму TLV (~300 байт), аутентифікація по PIN-коду, керування Charge MOS, Discharge MOS та активним балансиром.
+  * **Daly Smart BMS**: робота через BLE Service `0xFFF0` (`0xFFF1` Notify / `0xFFF2` Write) та апаратний сервіс `02F00000-...-FE00`, запити телеметрії `0x90`–`0x98` (напруги комірок, струм, SOC, ємність, температури, захисти, балансування), керування ключами Charge/Discharge MOS (`0xDA`, `0xD9`).
   * **Auto-Detect**: автоматичне розпізнавання підключеного типу BMS за рекламними пакетами та сервісами Bluetooth.
 
 * 🔋 **Повна автономність (100% Standalone)**:

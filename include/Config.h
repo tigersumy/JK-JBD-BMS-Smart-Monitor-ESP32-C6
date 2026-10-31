@@ -7,7 +7,8 @@
 enum BmsTypeConfig {
     BMS_TYPE_AUTO = 0,
     BMS_TYPE_JK   = 1,
-    BMS_TYPE_JBD  = 2
+    BMS_TYPE_JBD  = 2,
+    BMS_TYPE_DALY = 3
 };
 
 struct AppConfig {
@@ -15,7 +16,7 @@ struct AppConfig {
     String wifi_pass  = "";
     String bms_mac    = "";
     String bms_name   = "";
-    uint8_t bms_type  = BMS_TYPE_AUTO; // 0=Auto, 1=JK, 2=JBD
+    uint8_t bms_type  = BMS_TYPE_AUTO; // 0=Auto, 1=JK, 2=JBD, 3=Daly
     String bms_pin    = "1234";
     uint8_t cell_count = 8;            // 4, 8, 16, 24
 };

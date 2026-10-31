@@ -1,7 +1,7 @@
 # JK-JBD-BMS-Smart-Monitor-ESP32-C6
 
 [![ESP32-C6](https://img.shields.io/badge/MCU-ESP32--C6%20%2F%20ESP32--S3-blue.svg)](https://www.espressif.com/)
-[![Protocol](https://img.shields.io/badge/Protocols-JK--BMS%20%7C%20JBD--BMS-brightgreen.svg)]()
+[![Protocol](https://img.shields.io/badge/Protocols-JK--BMS%20%7C%20JBD--BMS%20%7C%20Daly--BMS-brightgreen.svg)]()
 [![Framework](https://img.shields.io/badge/Framework-Arduino%20%2F%20PlatformIO-orange.svg)](https://platformio.org/)
 [![UI](https://img.shields.io/badge/WebUI-Dark%20SPA%20(EN%20%2F%20UA)-purple.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -10,15 +10,16 @@
 
 **Universal, fully autonomous Bluetooth Low Energy (BLE) Gateway and Web Monitor for battery packs (LiFePO4 / Li-ion / LTO) powered by ESP32-C6 (with ESP32-S3 cross-compatibility).**
 
-Simultaneously supports the two most popular BMS protocols in energy storage: **JK-BMS (JiKong)** and **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar)** with automatic protocol detection.
+Simultaneously supports the three most popular BMS protocols in energy storage: **JK-BMS (JiKong)**, **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar)**, and **Daly Smart BMS** with automatic protocol detection.
 
 ---
 
 ## ⚡ Key Highlights & Features
 
-* 🔄 **Dual Protocol Support (JK & JBD)**:
+* 🔄 **Tri-BMS Protocol Support (JK, JBD & Daly)**:
   * **JBD-BMS / Xiaoxiang / Overkill Solar**: BLE Service `0xFF00`, queries Basic Info (`0x03`), Cell Voltages (`0x04`), Device Name (`0x05`), verifies 16-bit CRC checksums, and toggles MOSFET switches (`0xE1`).
   * **JK-BMS / JiKong**: BLE Service `0xFFE0`, parses complete ~300-byte TLV frames, supports PIN authentication, and controls Charge MOS, Discharge MOS, and Active Balancer.
+  * **Daly Smart BMS**: BLE Service `0xFFF0` (`0xFFF1` Notify / `0xFFF2` Write) and proprietary hardware service `02F00000-...-FE00`, telemetry queries `0x90`–`0x98` (cell voltages, current, SOC, capacity, temperatures, alarms, balancing status), Charge & Discharge MOS toggles (`0xDA`, `0xD9`).
   * **Auto-Detect**: Automatically discovers and binds to the connected BMS type based on BLE advertising services and device characteristics.
 
 * 🔋 **100% Autonomous & Standalone**:
