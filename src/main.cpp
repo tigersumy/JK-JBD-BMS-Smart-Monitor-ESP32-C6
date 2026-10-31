@@ -386,7 +386,8 @@ void setup() {
     delay(1000);
     Serial.println("\n==========================================");
     Serial.println("  Universal BMS Smart Monitor (ESP32-C6)  ");
-    Serial.println("       Protocols: JK | JBD | Daly         ");
+    Serial.println("   Protocols: JK | JBD | Daly | Ant | Redodo   ");
+    Serial.println("             Version: v1.3.0              ");
     Serial.println("==========================================");
 
     pinMode(BUTTON_PIN, INPUT_PULLUP);
