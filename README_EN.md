@@ -51,39 +51,154 @@ Simultaneously supports 5 leading BMS protocols: **JK-BMS (JiKong)**, **JBD-BMS 
 
 ```
 esp32c6_universal_bms_monitor/
-├── bin/                               # Pre-compiled ready-to-flash binaries
+├── bin/                               # Pre-compiled ready-to-flash binaries (Release v1.3.0)
 │   ├── esp32c6_universal_bms_monitor_factory.bin   # Complete factory image for ESP32-C6 (Offset 0x0000)
-│   ├── esp32c6_universal_bms_monitor_app.bin       # App firmware for ESP32-C6 (Offset 0x10000)
+│   ├── esp32c6_universal_bms_monitor_app.bin       # App firmware for ESP32-C6 (Offset 0x10000 / OTA)
 │   ├── esp32s3_universal_bms_monitor_factory.bin   # Complete factory image for ESP32-S3 (Offset 0x0000)
-│   └── esp32s3_universal_bms_monitor_app.bin       # App firmware for ESP32-S3 (Offset 0x10000)
+│   └── esp32s3_universal_bms_monitor_app.bin       # App firmware for ESP32-S3 (Offset 0x10000 / OTA)
 ├── include/
-│   ├── BmsBleClient.h                 # Dual BLE Central client (JK & JBD protocols)
-│   ├── BmsProtocol.h                  # Unified telemetry structure (BmsTelemetry)
+│   ├── BmsBleClient.h                 # 5-in-1 Universal BLE Central client (JK, JBD, Daly, Ant, Redodo)
+│   ├── BmsProtocol.h                  # Normalized telemetry model (BmsTelemetry, 1..32S)
 │   ├── Config.h                       # NVS configuration storage manager
-│   └── WebDashboard.h                 # Embedded HTML5/CSS3/JS Dark SPA Dashboard & Setup
+│   └── WebDashboard.h                 # Embedded HTML5/CSS3/JS Dark SPA Dashboard & Setup (UA/EN)
 ├── src/
-│   ├── BmsBleClient.cpp               # BLE driver implementation, packet reassembly & CRC
-│   └── main.cpp                       # WebServer, Captive Portal, REST API & BOOT button handler
+│   ├── BmsBleClient.cpp               # Multi-protocol parser, auto-detection engine & CRC verification
+│   └── main.cpp                       # WebServer, Captive Portal, REST API, BOOT button & FreeRTOS task
 ├── platformio.ini                     # Build environments for esp32-c6-supermini & esp32-s3-supermini
 ├── README.md                          # Ukrainian Documentation
 └── README_EN.md                       # English Documentation
 ```
 
+### 🧩 Protocol Engines in `BmsBleClient`:
+* **JK-BMS (JiKong)**: BLE Service `0xFFE0` (`0xFFE1` Notify / `0xFFE2` Write), decodes ~300-byte TLV frames, handles PIN handshakes, and controls Charge MOS, Discharge MOS, and Active Balancer registers.
+* **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar / PowerQueen)**: BLE Service `0xFF00`, queries Basic Info (`0x03`), Cell Voltages (`0x04`), Device Name (`0x05`), validates 16-bit CRC checksums, maps NTC3 (MOSFET temperature) and production date, controls MOSFET switches (`0xE1`).
+* **Daly Smart BMS**: BLE Service `0xFFF0` (`0xFFF1`/`0xFFF2`) and hardware service `02F00000-...-FE00`, telemetry queries `0x90`–`0x98`, parses cell voltages, current, SOC, capacity, temperatures, protection flags, controls Charge & Discharge MOS (`0xDA`, `0xD9`).
+* **Ant BMS**: BLE Service `0xFFE0` (`0xFFE1`/`0xFFE2`), NUS `6E400001-...` or `0xFFF0`, poll query `0xDB 0xDB`, decodes 140-byte frame `0xAA 0x55 0xAA 0xFF` (up to 32 cells, current, power, MOS Temp, T1, T2, capacity), controls Charge/Discharge MOS and Balancer (`0xA5 0xA5 ...`).
+* **Redodo / LiTime Monolithic BMS**: BLE Service `0xFFE0` (`0xFFE1`/`0xFFE2`), poll command `0x00 0x00 0x04 0x01 0x13 0x55 0xAA 0x17`, decodes 105-byte frame `0x00 0x00 0x61 0x01 0x93` (terminal voltage, up to 16 cells, current, cell/MOS/ambient temperatures, protections, balance mask, cycle count).
+
+---
+
+## 📊 BMS Compatibility Matrix
+
+| Brand / Family | Verified Models & Series | Supported Cells | Available Functions in Monitor |
+|---|---|---|---|
+| **JK (JiKong)** | JK-B1A8S20P, JK-B2A8S20P, JK-B2A16S20P, JK-B2A24S, JK-PB series, JK-BD series | 4S – 24S | Telemetry (1 mV accuracy), Current, SOC, Ah capacity, Cell voltages, Charge MOS, Discharge MOS, Active Balancer toggles |
+| **JBD (Jiabaida)** | SP04S034, SP08S004, SP15S001, SP16S001, AP20S003, Overkill Solar 4S/8S, PowerQueen LiFePO4 Smart | 3S – 32S | Telemetry, CRC-16 check, MOSFET Temp (NTC3), Production Date, Charge MOS, Discharge MOS control |
+| **Daly Smart BMS** | DL-4S, DL-8S (DL-8S-200A), DL-16S, DL-24S (0xFFF0 modules & FE00 chipset) | 3S – 32S | Telemetry `0x90`–`0x98`, Current, SOC, Ah, Cell voltages, Alarm/Fault flags, Charge & Discharge MOS controls |
+| **Ant BMS** | Ant-BMS 8S-20S, 8S-24S, 16S-32S (Bluetooth 4.0 / BLE with 0xAA 0x55 frames) | 7S – 32S | Telemetry 140B, up to 32 cells, 0.1A current, Power, MOS Temp, T1, T2, Charge MOS, Discharge MOS, Balancer switch |
+| **Redodo / LiTime** | LiTime 12V 100Ah Smart, LiTime 24V 100Ah Smart, Redodo 12V 100Ah / 200Ah Smart | 4S, 8S, 16S | Telemetry 105B, up to 16 cells, current in mA, cell/MOS/ambient temps, cycles, protection status, balance mask |
+
+---
+
+## 🧪 Testing with BMS Emulator (Universal BMS Emulator)
+
+If you don't have a physical battery pack or BMS at hand, you can test every feature of this monitor using our companion project: [Universal BMS BLE Emulator](https://github.com/tigersumy/JBD-bms-emulator):
+
+1. **Flash an emulator board** (ESP32-C6 or standard ESP32) with the emulator firmware.
+2. **Switch emulation mode**:
+   * **Via BOOT button at startup**: Hold or double-click the BOOT button to cycle profiles:
+     * 🔴 **3 Red flashes** = JBD BMS (`JBD-SP04S034`)
+     * 🟣 **3 Magenta flashes** = Daly Smart BMS (`DL-8S-200A`)
+     * 🔵 **3 Blue flashes** = Ant BMS (`ANT-BMS-08S`)
+     * 🟠 **3 Orange flashes** = JK BMS (`JK-B2A8S20P`)
+     * 🟡 **3 Yellow flashes** = Redodo / LiTime Monolithic BMS (`Redodo-12V100A` / `LT-12100B`)
+   * **Via Emulator Web Dashboard**: Navigate to `http://192.168.4.1` (or `http://bms-emulator.local`) and select the desired profile from the dropdown menu.
+3. **Connect the monitor**:
+   * Open the monitor setup page at `http://192.168.4.1/setup` (or `http://bms-monitor.local/setup`).
+   * Click **🔍 Find BMS** — the monitor will scan BLE and discover the emulator.
+   * Click on the found device — MAC address and protocol type are filled automatically!
+   * Click **💾 Save & Connect** to view real-time live telemetry and test switch controls.
+
 ---
 
 ## 📡 REST API Reference
 
-| Method | Endpoint | Description | Payload Example |
+| Method | Endpoint | Description | Payload Example / Response |
 |---|---|---|---|
 | `GET` | `/` | Main SPA Monitoring Dashboard | — |
 | `GET` | `/setup` | Configuration & Scanner Webpage | — |
-| `GET` | `/api/data` | Real-time Battery Telemetry (JSON) | — |
-| `POST` | `/api/switch` | Toggle MOSFET switches / Balancer | `{"switch": "charging"|"discharging"|"balancer", "state": true|false}` |
+| `GET` | `/api/data` | Real-time Battery Telemetry (JSON) | See JSON model below |
+| `POST` | `/api/switch` | Toggle MOSFET switches or Active Balancer | `{"switch": "charging"\|"discharging"\|"balancer", "state": true\|false}` |
 | `POST` | `/api/set-cells` | Override active cell count | `{"cells": 8}` |
-| `GET` | `/api/scan-wifi` | Scan nearby Wi-Fi networks | — |
-| `GET` | `/api/scan-ble` | Discover nearby Bluetooth BMS devices | — |
-| `GET` | `/api/config` | Retrieve current saved configuration | — |
+| `GET` | `/api/scan-wifi` | Scan nearby Wi-Fi networks | `[{"ssid":"Home-WiFi","rssi":-58,"secure":true}]` |
+| `GET` | `/api/scan-ble` | Discover nearby Bluetooth BMS devices | `[{"name":"JK-B2A8S20P","mac":"AA:BB:..","type":"JK-BMS","rssi":-62}]` |
+| `GET` | `/api/config` | Retrieve current saved configuration | `{"ssid":"...","mac":"...","type":0,"pin":"1234","cells":8}` |
 | `POST` | `/api/save-config` | Save new Wi-Fi and BMS settings to NVS | `{"ssid":"...","pass":"...","mac":"...","type":0,"pin":"1234","cells":8}` |
+
+### 💡 Examples: Controlling switches via `curl`:
+
+```bash
+# 1. Enable Charge MOS:
+curl -X POST http://bms-monitor.local/api/switch \
+     -H "Content-Type: application/json" \
+     -d '{"switch": "charging", "state": true}'
+
+# 2. Disable Discharge MOS:
+curl -X POST http://bms-monitor.local/api/switch \
+     -H "Content-Type: application/json" \
+     -d '{"switch": "discharging", "state": false}'
+
+# 3. Enable Active Balancer (for JK-BMS and Ant BMS):
+curl -X POST http://bms-monitor.local/api/switch \
+     -H "Content-Type: application/json" \
+     -d '{"switch": "balancer", "state": true}'
+```
+
+---
+
+## 🏠 Home Assistant Integration
+
+### Option 1: RESTful Sensor (Available Now)
+Add to your Home Assistant `configuration.yaml`:
+
+```yaml
+sensor:
+  - platform: rest
+    name: "Home Battery BMS"
+    resource: "http://bms-monitor.local/api/data"
+    scan_interval: 5
+    json_attributes:
+      - bms_type
+      - connected
+      - cell_count
+      - cell_voltages
+      - delta_cell_v
+      - min_cell_v
+      - max_cell_v
+      - temp_mos
+      - temp_sensor1
+      - temp_sensor2
+      - switch_charging
+      - switch_discharging
+      - switch_balancer
+    value_template: "{{ value_json.total_voltage | round(2) }}"
+    unit_of_measurement: "V"
+
+  - platform: template
+    sensors:
+      battery_current:
+        friendly_name: "Battery Current"
+        unit_of_measurement: "A"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'current') | default(0) }}"
+      battery_soc:
+        friendly_name: "Battery SOC"
+        unit_of_measurement: "%"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'soc') | default(0) }}"
+      battery_power:
+        friendly_name: "Battery Power"
+        unit_of_measurement: "W"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'power') | default(0) }}"
+      battery_delta_v:
+        friendly_name: "Cell Delta Voltage"
+        unit_of_measurement: "V"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'delta_cell_v') | default(0) }}"
+```
+
+### Option 2: MQTT Discovery (Roadmap for v1.4.0) 🚀
+Planned for **v1.4.0**:
+* Native **Home Assistant MQTT Discovery** integration (`homeassistant/sensor/bms_monitor/.../config`).
+* Zero configuration: Device and all sensors (Voltages, Current, Power, SOC, Capacity, Temperatures, individual cell 1..32 voltages, and status switches) appear automatically in Home Assistant.
+* Two-way switch control directly from Home Assistant UI dashboard cards over MQTT command topics.
 
 ---
 
@@ -128,7 +243,7 @@ pio device monitor -b 115200
 3. In the setup form:
    * Select your home Wi-Fi network and enter the password.
    * Click **🔍 Find BMS** to scan for nearby devices, or type the Bluetooth MAC manually.
-   * Select BMS Type (*Auto Detect*, *JK-BMS*, or *JBD-BMS*) and Cell Configuration (*4S, 8S, 16S, 24S*).
+   * Select BMS Type (*Auto Detect*, *JK-BMS*, *JBD-BMS*, *Daly Smart BMS*, *Ant BMS*, or *Redodo / LiTime*) and Cell Configuration (*4S, 8S, 16S, 24S*).
    * Click **💾 Save & Connect**.
 4. The ESP32-C6 will restart, join your local network, and become accessible at: **`http://bms-monitor.local`**.
 

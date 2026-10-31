@@ -51,38 +51,153 @@
 
 ```
 esp32c6_universal_bms_monitor/
-├── bin/                               # Готові скомпільовані бінарні файли
+├── bin/                               # Готові скомпільовані бінарні файли (Release v1.3.0)
 │   ├── esp32c6_universal_bms_monitor_factory.bin   # Повний образ для ESP32-C6 (адреса 0x0000)
-│   ├── esp32c6_universal_bms_monitor_app.bin       # Тільки прошивка для ESP32-C6 (адреса 0x10000)
+│   ├── esp32c6_universal_bms_monitor_app.bin       # Тільки прошивка для ESP32-C6 (адреса 0x10000 / OTA)
 │   ├── esp32s3_universal_bms_monitor_factory.bin   # Повний образ для ESP32-S3 (адреса 0x0000)
-│   └── esp32s3_universal_bms_monitor_app.bin       # Тільки прошивка для ESP32-S3 (адреса 0x10000)
+│   └── esp32s3_universal_bms_monitor_app.bin       # Тільки прошивка для ESP32-S3 (адреса 0x10000 / OTA)
 ├── include/
-│   ├── BmsBleClient.h                 # BLE Клієнт для роботи з JK та JBD
-│   ├── BmsProtocol.h                  # Уніфікована структура телеметрії BmsTelemetry
-│   ├── Config.h                       # NVS менеджер конфігурації
-│   └── WebDashboard.h                 # HTML5/CSS3/JS Dark SPA Dashboard & Setup
+│   ├── BmsBleClient.h                 # Універсальний BLE GATT клієнт (5-in-1: JK, JBD, Daly, Ant, Redodo)
+│   ├── BmsProtocol.h                  # Нормалізована модель даних BmsTelemetry (1..32S)
+│   ├── Config.h                       # NVS менеджер конфігурації (Wi-Fi, MAC, тип BMS, PIN, комірки)
+│   └── WebDashboard.h                 # Вбудований Dark SPA Dashboard & Setup (HTML5/CSS3/JS, UA/EN)
 ├── src/
-│   ├── BmsBleClient.cpp               # Реалізація BLE драйверів, парсинг, CRC
-│   └── main.cpp                       # WebServer, Captive Portal, REST API, кнопка BOOT
+│   ├── BmsBleClient.cpp               # Реалізація 5 протоколів, автовизначення, CRC та опитування
+│   └── main.cpp                       # WebServer, REST API, DNS Captive Portal, кнопка BOOT, FreeRTOS
 ├── platformio.ini                     # Збірка для esp32-c6-supermini та esp32-s3-supermini
 └── README.md
 ```
+
+### 🧩 Модульна реалізація протоколів у `BmsBleClient`:
+* **JK-BMS (JiKong)**: Сервіс `0xFFE0` (`0xFFE1` Notify / `0xFFE2` Write), декодування великих TLV-кадрів (~300 байт), аутентифікація PIN, керування регістрами Charge/Discharge MOS та активного балансира.
+* **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar / PowerQueen)**: Сервіс `0xFF00`, структуровані запити Basic Info (`0x03`), напруг комірок (`0x04`) та імені (`0x05`), сувора валідація CRC-16, зчитування NTC3 (MOSFET) та дати виготовлення, керування MOSFET (`0xE1`).
+* **Daly Smart BMS**: Сервіс `0xFFF0` (`0xFFF1`/`0xFFF2`) та апаратний сервіс `02F00000-...-FE00`, опитування команд `0x90`–`0x98`, декодування напруг, струму, температур, захистів та перемикання ключів (`0xDA`, `0xD9`).
+* **Ant BMS**: Сервіс `0xFFE0` (`0xFFE1`/`0xFFE2`), NUS `6E400001-...` або `0xFFF0`, опитування `0xDB 0xDB`, декодування 140-байтного кадру `0xAA 0x55 0xAA 0xFF` (до 32 комірок, струм 0.1A, потужність, MOS Temp, T1, T2, ємність), керування ключами та балансиром (`0xA5 0xA5 ...`).
+* **Redodo / LiTime Monolithic BMS**: Сервіс `0xFFE0` (`0xFFE1`/`0xFFE2`), опитування `0x00 0x00 0x04 0x01 0x13 0x55 0xAA 0x17`, розкодування 105-байтного фрейму `0x00 0x00 0x61 0x01 0x93` (напруга клем, до 16 комірок, струм у мА, температури, захисти, маска балансування).
+
+---
+
+## 📊 Таблиця сумісності BMS
+
+| Виробник / Сімейство | Перевірені моделі / Серії | Підтримувані комірки | Доступний функціонал у моніторі |
+|---|---|---|---|
+| **JK (JiKong)** | JK-B1A8S20P, JK-B2A8S20P, JK-B2A16S20P, JK-B2A24S, серії JK-PB, JK-BD | 4S – 24S | Телеметрія (1 мВ точність), струм, SOC, ємність, напруги комірок, перемикачі Charge MOS, Discharge MOS, Активний балансир |
+| **JBD (Jiabaida)** | SP04S034, SP08S004, SP15S001, SP16S001, AP20S003, Overkill Solar 4S/8S, PowerQueen LiFePO4 Smart | 3S – 32S | Телеметрія, перевірка CRC-16, MOSFET Temp (NTC3), дата виробництва, керування Charge MOS, Discharge MOS |
+| **Daly Smart BMS** | DL-4S, DL-8S (DL-8S-200A), DL-16S, DL-24S (Bluetooth модулі 0xFFF0 та апаратний FE00) | 3S – 32S | Телеметрія `0x90`–`0x98`, струм, SOC, ємність, напруги комірок, прапорці помилок/захистів, перемикачі Charge/Discharge MOS |
+| **Ant BMS** | Ant-BMS 8S-20S, 8S-24S, 16S-32S (Bluetooth 4.0 / BLE з кадрами 0xAA 0x55) | 7S – 32S | Телеметрія 140B, напруги до 32 комірок, струм (0.1A), потужність, MOS Temp, T1, T2, перемикачі Charge MOS, Discharge MOS, Балансир |
+| **Redodo / LiTime** | LiTime 12V 100Ah Smart, LiTime 24V 100Ah Smart, Redodo 12V 100Ah / 200Ah Smart | 4S, 8S, 16S | Телеметрія 105B, напруги до 16 комірок, струм у мА, температури комірок/MOS/середовища, цикли, захисти, стан балансування |
+
+---
+
+## 🧪 Тестування з емулятором (Universal BMS Emulator)
+
+Якщо у вас немає під рукою фізичного акумулятора чи BMS, ви можете повністю протестувати систему за допомогою нашого проєкту [Universal BMS BLE Emulator](https://github.com/tigersumy/JBD-bms-emulator):
+
+1. **Прошийте плату-емулятор** (ESP32-C6 або ESP32) скетчем емулятора.
+2. **Виберіть протокол для емуляції**:
+   * **Через кнопку BOOT при увімкненні**: затисніть або зробіть подвійний клік кнопки BOOT для перемикання:
+     * 🔴 **3 червоних спалахи** = JBD BMS (`JBD-SP04S034`)
+     * 🟣 **3 пурпурових спалахи** = Daly Smart BMS (`DL-8S-200A`)
+     * 🔵 **3 синіх спалахи** = Ant BMS (`ANT-BMS-08S`)
+     * 🟠 **3 помаранчевих спалахи** = JK BMS (`JK-B2A8S20P`)
+     * 🟡 **3 жовтих спалахи** = Redodo / LiTime Monolithic BMS (`Redodo-12V100A` / `LT-12100B`)
+   * **Через веб-інтерфейс емулятора**: перейдіть на `http://192.168.4.1` (або `http://bms-emulator.local`) та виберіть потрібний профіль зі списку.
+3. **Підключення монітора**:
+   * Відкрийте сторінку налаштувань монітора `http://192.168.4.1/setup` (або `http://bms-monitor.local/setup`).
+   * Натисніть **🔍 Find BMS** — монітор знайде емулятор в ефірі BLE.
+   * Клікніть на знайдений пристрій — поле MAC та тип протоколу заповняться автоматично!
+   * Натисніть **💾 Save & Connect** та насолоджуйтеся миттєвою живою телеметрією.
 
 ---
 
 ## 📡 Опис REST API
 
-| Метод | URL | Опис | Приклад корисного навантаження |
+| Метод | URL | Опис | Приклад корисного навантаження / Відповідь |
 |---|---|---|---|
 | `GET` | `/` | Головна панель моніторингу (SPA) | — |
-| `GET` | `/setup` | Веб-сторінка налаштувань | — |
-| `GET` | `/api/data` | Повна телеметрія батареї (JSON) | — |
-| `POST` | `/api/switch` | Перемикання MOSFET ключів / балансира | `{"switch": "charging"|"discharging"|"balancer", "state": true|false}` |
+| `GET` | `/setup` | Веб-сторінка налаштувань (Wi-Fi, BMS, PIN, осередки) | — |
+| `GET` | `/api/data` | Повна телеметрія батареї (JSON) | Див. приклад нижче |
+| `POST` | `/api/switch` | Перемикання MOSFET ключів або активного балансира | `{"switch": "charging"\|"discharging"\|"balancer", "state": true\|false}` |
 | `POST` | `/api/set-cells` | Зміна кількості осередків | `{"cells": 8}` |
-| `GET` | `/api/scan-wifi` | Сканування доступних Wi-Fi мереж | — |
-| `GET` | `/api/scan-ble` | Пошук BMS в ефірі Bluetooth | — |
-| `GET` | `/api/config` | Читання збережених налаштувань | — |
+| `GET` | `/api/scan-wifi` | Сканування доступних Wi-Fi мереж | `[{"ssid":"Home-WiFi","rssi":-58,"secure":true}]` |
+| `GET` | `/api/scan-ble` | Пошук підтримуваних BMS в ефірі Bluetooth | `[{"name":"JK-B2A8S20P","mac":"AA:BB:..","type":"JK-BMS","rssi":-62}]` |
+| `GET` | `/api/config` | Читання збережених налаштувань | `{"ssid":"...","mac":"...","type":0,"pin":"1234","cells":8}` |
 | `POST` | `/api/save-config` | Збереження нових налаштувань в NVS | `{"ssid":"...","pass":"...","mac":"...","type":0,"pin":"1234","cells":8}` |
+
+### 💡 Приклади керування ключами через `curl`:
+
+```bash
+# 1. Увімкнути зарядку (Charge MOS):
+curl -X POST http://bms-monitor.local/api/switch \
+     -H "Content-Type: application/json" \
+     -d '{"switch": "charging", "state": true}'
+
+# 2. Вимкнути розрядку (Discharge MOS):
+curl -X POST http://bms-monitor.local/api/switch \
+     -H "Content-Type: application/json" \
+     -d '{"switch": "discharging", "state": false}'
+
+# 3. Увімкнути активний балансир (для JK-BMS та Ant BMS):
+curl -X POST http://bms-monitor.local/api/switch \
+     -H "Content-Type: application/json" \
+     -d '{"switch": "balancer", "state": true}'
+```
+
+---
+
+## 🏠 Інтеграція в Home Assistant
+
+### Варіант 1: RESTful Sensor (підтримується вже зараз)
+Додайте у ваш `configuration.yaml` Home Assistant:
+
+```yaml
+sensor:
+  - platform: rest
+    name: "Home Battery BMS"
+    resource: "http://bms-monitor.local/api/data"
+    scan_interval: 5
+    json_attributes:
+      - bms_type
+      - connected
+      - cell_count
+      - cell_voltages
+      - delta_cell_v
+      - min_cell_v
+      - max_cell_v
+      - temp_mos
+      - temp_sensor1
+      - temp_sensor2
+      - switch_charging
+      - switch_discharging
+      - switch_balancer
+    value_template: "{{ value_json.total_voltage | round(2) }}"
+    unit_of_measurement: "V"
+
+  - platform: template
+    sensors:
+      battery_current:
+        friendly_name: "Battery Current"
+        unit_of_measurement: "A"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'current') | default(0) }}"
+      battery_soc:
+        friendly_name: "Battery SOC"
+        unit_of_measurement: "%"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'soc') | default(0) }}"
+      battery_power:
+        friendly_name: "Battery Power"
+        unit_of_measurement: "W"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'power') | default(0) }}"
+      battery_delta_v:
+        friendly_name: "Cell Delta Voltage"
+        unit_of_measurement: "V"
+        value_template: "{{ state_attr('sensor.home_battery_bms', 'delta_cell_v') | default(0) }}"
+```
+
+### Варіант 2: MQTT Discovery (У планах на v1.4.0) 🚀
+У наступному релізі **v1.4.0** заплановано інтеграцію нативного клієнта **Home Assistant MQTT Discovery**:
+* Автоматичне виявлення пристрою в Home Assistant через брокер MQTT (`homeassistant/sensor/bms_monitor/.../config`).
+* Нульова конфігурація: всі сутності (напруга, струм, SOC, ємність, температури, окремі сенсори напруги комірок 1..32, а також кнопки керування MOSFET) з'являтимуться в HA як єдиний інтегрований пристрій.
+* Двостороннє керування ключами Charge/Discharge MOS та балансиром прямо з картки Home Assistant через MQTT топіки команд.
 
 ---
 
@@ -127,7 +242,7 @@ pio device monitor -b 115200
 3. У формі налаштувань:
    * Виберіть вашу домашню мережу Wi-Fi та введіть пароль.
    * Натисніть **🔍 Find BMS** (або введіть MAC-адресу вручну).
-   * Виберіть тип BMS (*Auto Detect*, *JK-BMS* або *JBD-BMS*) та кількість комірок (*4S, 8S, 16S, 24S*).
+   * Виберіть тип BMS (*Auto Detect*, *JK-BMS*, *JBD-BMS*, *Daly Smart BMS*, *Ant BMS* або *Redodo / LiTime*) та кількість комірок (*4S, 8S, 16S, 24S*).
    * Натисніть **💾 Save & Connect**.
 4. Пристрій перезавантажиться, підключиться до вашого Wi-Fi і стане доступним за адресою: **`http://bms-monitor.local`**.
 
