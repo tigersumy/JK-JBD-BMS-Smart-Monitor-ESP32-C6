@@ -125,7 +125,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         <div class="header-logo">⚡</div>
         <div>
           <h1>Universal BMS Monitor</h1>
-          <p id="mac-label" data-i18n="sub">ESP32-C6 BLE Gateway (JK / JBD / Daly)</p>
+          <p id="mac-label" data-i18n="sub">ESP32-C6 BLE Gateway (JK / JBD / Daly / Ant / Redodo)</p>
         </div>
       </div>
       <div class="header-actions">
@@ -314,7 +314,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         bal_prefix: "Balancer: "
       },
       uk: {
-        sub: "ESP32-C6 BLE Шлюз (JK / JBD)",
+        sub: "ESP32-C6 BLE Шлюз (JK / JBD / Daly / Ant / Redodo)",
         options: "⚙️ Налаштування",
         kpi_tot_v: "🔋 Загальна напруга",
         kpi_curr: "⚡ Струм АКБ",
@@ -703,10 +703,12 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
       <div class="field-group">
         <label data-i18n="bms_type_lbl">BMS Protocol / Type:</label>
         <select id="bms-type">
-          <option value="0" selected data-i18n="opt_type_auto">Auto Detect (JK / JBD / Daly)</option>
+          <option value="0" selected data-i18n="opt_type_auto">Auto Detect (JK / JBD / Daly / Ant / Redodo)</option>
           <option value="1">JK-BMS (0xFFE0 / TLV)</option>
           <option value="2">JBD / Xiaoxiang (0xFF00 / 0xA5)</option>
           <option value="3">Daly Smart BMS (0xFFF0 / 0xA5)</option>
+          <option value="4">Ant BMS (0xFFE0 / 0xAA55)</option>
+          <option value="5">Redodo / LiTime (0xFFE0 / 105B)</option>
         </select>
       </div>
 
@@ -749,13 +751,13 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
     const i18n = {
       en: {
         setup_title: "⚡ Universal BMS Setup",
-        setup_sub: "Configure Wi-Fi connection and select your Bluetooth BMS (JK-BMS, JBD-BMS, or Daly BMS).",
+        setup_sub: "Configure Wi-Fi connection and select your Bluetooth BMS (JK, JBD, Daly, Ant, Redodo).",
         wifi_ssid_lbl: "Wi-Fi Network Name (SSID):",
         btn_scan_wifi: "🔄 Scan",
         wifi_sel_default: "-- Discovered Wi-Fi Networks --",
         wifi_pass_lbl: "Wi-Fi Password:",
         bms_type_lbl: "BMS Protocol / Type:",
-        opt_type_auto: "Auto Detect (JK / JBD / Daly)",
+        opt_type_auto: "Auto Detect (JK / JBD / Daly / Ant / Redodo)",
         bms_mac_lbl: "BMS Bluetooth MAC Address:",
         btn_scan_ble: "🔍 Find BMS",
         ble_scan_prog: "Scanning BLE radio (~5 sec)...",
@@ -774,13 +776,13 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
       },
       uk: {
         setup_title: "⚡ Налаштування Universal BMS",
-        setup_sub: "Вкажіть параметри підключення до домашнього Wi-Fi та виберіть Bluetooth MAC-адресу вашої BMS (JK, JBD або Daly).",
+        setup_sub: "Вкажіть параметри підключення до домашнього Wi-Fi та виберіть Bluetooth MAC-адресу вашої BMS (JK, JBD, Daly, Ant, Redodo).",
         wifi_ssid_lbl: "Ім'я Wi-Fi мережі (SSID):",
         btn_scan_wifi: "🔄 Сканувати",
         wifi_sel_default: "-- Знайдені Wi-Fi мережі --",
         wifi_pass_lbl: "Пароль Wi-Fi мережі:",
         bms_type_lbl: "Тип / Протокол BMS:",
-        opt_type_auto: "Автовизначення (JK / JBD / Daly)",
+        opt_type_auto: "Автовизначення (JK / JBD / Daly / Ant / Redodo)",
         bms_mac_lbl: "Bluetooth MAC-адреса BMS:",
         btn_scan_ble: "🔍 Пошук BMS",
         ble_scan_prog: "Сканування BLE ефіру (~5 сек)...",
@@ -869,6 +871,8 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
               if (item.type === 'JK-BMS') document.getElementById('bms-type').value = '1';
               else if (item.type === 'JBD-BMS') document.getElementById('bms-type').value = '2';
               else if (item.type === 'Daly-BMS') document.getElementById('bms-type').value = '3';
+              else if (item.type === 'Ant-BMS') document.getElementById('bms-type').value = '4';
+              else if (item.type === 'Redodo-BMS') document.getElementById('bms-type').value = '5';
             };
             listEl.appendChild(div);
           });

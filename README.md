@@ -1,7 +1,7 @@
-# JK-JBD-BMS-Smart-Monitor-ESP32-C6
+# Universal-BMS-Smart-Monitor-ESP32-C6
 
 [![ESP32-C6](https://img.shields.io/badge/MCU-ESP32--C6%20%2F%20ESP32--S3-blue.svg)](https://www.espressif.com/)
-[![Protocol](https://img.shields.io/badge/Protocols-JK--BMS%20%7C%20JBD--BMS%20%7C%20Daly--BMS-brightgreen.svg)]()
+[![Protocol](https://img.shields.io/badge/Protocols-JK%20%7C%20JBD%20%7C%20Daly%20%7C%20Ant%20%7C%20Redodo-brightgreen.svg)]()
 [![Framework](https://img.shields.io/badge/Framework-Arduino%20%2F%20PlatformIO-orange.svg)](https://platformio.org/)
 [![UI](https://img.shields.io/badge/WebUI-Dark%20SPA%20(UA%20%2F%20EN)-purple.svg)]()
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -10,16 +10,18 @@
 
 **Універсальний, повністю автономний розумний BLE-шлюз та локальний веб-монітор для акумуляторних батарей (LiFePO4 / Li-ion / LTO) на базі мікроконтролера ESP32-C6 (із підтримкою ESP32-S3).**
 
-Підтримує одночасно три найпопулярніших протоколи BMS: **JK-BMS (JiKong)**, **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar)** та **Daly Smart BMS** із вбудованою функцією автовизначення протоколу.
+Підтримує одночасно 5 провідних протоколів BMS: **JK-BMS (JiKong)**, **JBD-BMS (Jiabaida / Xiaoxiang / Overkill Solar / PowerQueen)**, **Daly Smart BMS**, **Ant BMS** та **Redodo / LiTime Monolithic Smart BMS** із вбудованою функцією автоматичного розпізнавання протоколу (Auto-Detect).
 
 ---
 
 ## ⚡ Головні особливості
 
-* 🔄 **Універсальна підтримка протоколів (Tri-BMS Protocol: JK, JBD, Daly)**:
-  * **JBD-BMS / Xiaoxiang / Overkill Solar**: робота через BLE Service `0xFF00`, підтримка запитів Basic Info (`0x03`), напруг комірок (`0x04`), імені пристрою (`0x05`), перевірка 16-бітного CRC та керування MOSFET-ключами (`0xE1`).
+* 🔄 **Універсальна підтримка 5 протоколів (5-in-1 Universal BMS)**:
+  * **JBD-BMS / Xiaoxiang / Overkill Solar / PowerQueen**: робота через BLE Service `0xFF00`, підтримка запитів Basic Info (`0x03`), напруг комірок (`0x04`), імені пристрою (`0x05`), перевірка 16-бітного CRC та керування MOSFET-ключами (`0xE1`).
   * **JK-BMS / JiKong**: робота через BLE Service `0xFFE0`, декодування повного фрейму TLV (~300 байт), аутентифікація по PIN-коду, керування Charge MOS, Discharge MOS та активним балансиром.
   * **Daly Smart BMS**: робота через BLE Service `0xFFF0` (`0xFFF1` Notify / `0xFFF2` Write) та апаратний сервіс `02F00000-...-FE00`, запити телеметрії `0x90`–`0x98` (напруги комірок, струм, SOC, ємність, температури, захисти, балансування), керування ключами Charge/Discharge MOS (`0xDA`, `0xD9`).
+  * **Ant BMS**: робота через BLE Service `0xFFE0` (`0xFFE1` Notify / `0xFFE2` Write), NUS або `0xFFF0`, опитування `0xDB 0xDB`, декодування 140-байтного фрейму телеметрії `0xAA 0x55 0xAA 0xFF` (до 32 комірок, струм, потужність, температури MOS/T1/T2, SOC, ємність), керування ключами Charge MOS, Discharge MOS та балансиром (`0xA5 0xA5 ...`).
+  * **Redodo / LiTime Monolithic Smart BMS**: робота через BLE Service `0xFFE0` (`0xFFE1` Notify / `0xFFE2` Write), опитування запитом `0x00 0x00 0x04 0x01 0x13 0x55 0xAA 0x17`, декодування 105-байтного фрейму телеметрії `0x00 0x00 0x61 0x01 0x93` (напруга клем, до 16 комірок, струм, температури комірок/MOS/середовища, захисти, балансувальна маска, цикли).
   * **Auto-Detect**: автоматичне розпізнавання підключеного типу BMS за рекламними пакетами та сервісами Bluetooth.
 
 * 🔋 **Повна автономність (100% Standalone)**:

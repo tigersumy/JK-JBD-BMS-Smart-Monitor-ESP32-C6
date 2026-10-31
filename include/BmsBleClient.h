@@ -58,6 +58,10 @@ private:
     NimBLERemoteCharacteristic* m_pDalyNotifyChar = nullptr;
     NimBLERemoteCharacteristic* m_pDalyWriteChar  = nullptr;
     bool                        m_dalyWriteWithResponse = false;
+    NimBLERemoteCharacteristic* m_pAntNotifyChar = nullptr;
+    NimBLERemoteCharacteristic* m_pAntWriteChar  = nullptr;
+    NimBLERemoteCharacteristic* m_pRedodoNotifyChar = nullptr;
+    NimBLERemoteCharacteristic* m_pRedodoWriteChar  = nullptr;
 
     bool m_isConnected = false;
     bool m_isScanning  = false;
@@ -90,6 +94,17 @@ private:
     void sendDalyCommand(uint8_t cmdId, const uint8_t* payload = nullptr);
     void handleDalyPacket(const uint8_t* data, size_t len);
     void decodeDalyTelemetry(uint8_t cmdId, const uint8_t* payload);
+
+    // Ant protocol handlers
+    void sendAntPollRequest();
+    bool sendAntSwitchCommand(uint8_t cmd, uint8_t state);
+    void handleAntPacket(const uint8_t* data, size_t len);
+    void decodeAntLegacyTelemetry(const uint8_t* frame);
+
+    // Redodo / LiTime protocol handlers
+    void sendRedodoPollRequest();
+    void handleRedodoPacket(const uint8_t* data, size_t len);
+    void decodeRedodoTelemetry(const uint8_t* frame);
 
     // BLE Callbacks
     friend class BmsScanCallbacks;

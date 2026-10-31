@@ -63,9 +63,18 @@ class BmsScanCallbacks : public NimBLEScanCallbacks {
             advertisedDevice->isAdvertisingService(NimBLEUUID("02f00000-0000-0000-0000-00000000fe00")) ||
             advertisedDevice->isAdvertisingService(NimBLEUUID("fe00")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FE00"))) {
             type = "Daly-BMS";
+        } else if (name.startsWith("ANT") || name.startsWith("ant") || name.indexOf("ANT-BMS") >= 0 || name.indexOf("Ant") >= 0) {
+            type = "Ant-BMS";
+        } else if (name.startsWith("RN") || name.startsWith("LT") || name.startsWith("R-") || name.startsWith("L-") ||
+                   name.indexOf("Redodo") >= 0 || name.indexOf("LiTime") >= 0 || name.indexOf("redodo") >= 0 || name.indexOf("litime") >= 0) {
+            type = "Redodo-BMS";
         } else if (name.startsWith("JK") || advertisedDevice->isAdvertisingService(NimBLEUUID("ffe0")) || advertisedDevice->isAdvertisingService(NimBLEUUID("FFE0"))) {
             if (name.indexOf("Daly") >= 0 || name.indexOf("DALY") >= 0 || name.startsWith("DL")) {
                 type = "Daly-BMS";
+            } else if (name.startsWith("ANT") || name.startsWith("ant") || name.indexOf("Ant") >= 0) {
+                type = "Ant-BMS";
+            } else if (name.startsWith("RN") || name.startsWith("LT") || name.indexOf("Redodo") >= 0 || name.indexOf("LiTime") >= 0) {
+                type = "Redodo-BMS";
             } else {
                 type = "JK-BMS";
             }
@@ -78,6 +87,8 @@ class BmsScanCallbacks : public NimBLEScanCallbacks {
                    advertisedDevice->isAdvertisingService(NimBLEUUID("0000FFF0-0000-1000-8000-00805F9B34FB"))) {
             if (name.startsWith("DL") || name.indexOf("Daly") >= 0 || name.indexOf("DALY") >= 0 || name.startsWith("BMS-")) {
                 type = "Daly-BMS";
+            } else if (name.startsWith("ANT") || name.startsWith("ant") || name.indexOf("Ant") >= 0) {
+                type = "Ant-BMS";
             } else {
                 type = "JBD-BMS";
             }
@@ -259,6 +270,10 @@ void BmsBleClient::loop() {
                 if (m_telemetry.last_update == 0 || (now - m_telemetry.last_update > 4000)) {
                     sendJkPollRequest();
                 }
+            } else if (m_telemetry.bms_type == "Ant-BMS") {
+                sendAntPollRequest();
+            } else if (m_telemetry.bms_type == "Redodo-BMS") {
+                sendRedodoPollRequest();
             }
         }
     }
@@ -310,6 +325,12 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
     bool isDalyCandidate = (forcedType == BMS_TYPE_DALY) || 
                            hasDalyFe00 ||
                            ((forcedType == BMS_TYPE_AUTO) && (name.startsWith("DL") || name.startsWith("BMS-") || name.indexOf("Daly") >= 0 || name.indexOf("DALY") >= 0));
+
+    bool isAntCandidate = (forcedType == BMS_TYPE_ANT) ||
+                          ((forcedType == BMS_TYPE_AUTO) && (name.startsWith("ANT") || name.startsWith("ant") || name.indexOf("Ant") >= 0 || name.indexOf("ANT") >= 0));
+
+    bool isRedodoCandidate = (forcedType == BMS_TYPE_REDODO) ||
+                             ((forcedType == BMS_TYPE_AUTO) && (name.startsWith("RN") || name.startsWith("LT") || name.startsWith("R-") || name.startsWith("L-") || name.indexOf("Redodo") >= 0 || name.indexOf("LiTime") >= 0 || name.indexOf("redodo") >= 0 || name.indexOf("litime") >= 0));
 
     if (isDalyCandidate) {
         Serial.println("[BLE] Attempting Daly BMS protocol negotiation...");
@@ -375,8 +396,124 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
         }
     }
 
-    // 2. Try JBD Service (FF00 / FFF0 / 128-bit)
-    if (pJbdService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JBD) && (!isDalyCandidate || forcedType == BMS_TYPE_JBD)) {
+    // 2. Try Ant BMS (service 0xFFE0, 0xFFF0, or NUS)
+    if (isAntCandidate) {
+        Serial.println("[BLE] Attempting Ant BMS protocol negotiation...");
+        m_pAntNotifyChar = nullptr;
+        m_pAntWriteChar = nullptr;
+
+        for (auto* s : services) {
+            for (auto* c : s->getCharacteristics(true)) {
+                String uuid = c->getUUID().toString().c_str();
+                uuid.toLowerCase();
+                if (uuid.indexOf("ffe1") >= 0 || uuid.indexOf("fff1") >= 0 || uuid.indexOf("6e400003") >= 0) {
+                    m_pAntNotifyChar = c;
+                }
+                if (uuid.indexOf("ffe2") >= 0 || uuid.indexOf("fff2") >= 0 || uuid.indexOf("6e400002") >= 0) {
+                    m_pAntWriteChar = c;
+                }
+            }
+        }
+
+        if (!m_pAntNotifyChar || !m_pAntWriteChar) {
+            for (auto* s : services) {
+                for (auto* c : s->getCharacteristics(true)) {
+                    if (!m_pAntNotifyChar && (c->canNotify() || c->canIndicate())) {
+                        m_pAntNotifyChar = c;
+                    }
+                    if (!m_pAntWriteChar && (c->canWrite() || c->canWriteNoResponse())) {
+                        m_pAntWriteChar = c;
+                    }
+                }
+            }
+        }
+
+        if (!m_pAntWriteChar && m_pAntNotifyChar && (m_pAntNotifyChar->canWrite() || m_pAntNotifyChar->canWriteNoResponse())) {
+            m_pAntWriteChar = m_pAntNotifyChar;
+        }
+
+        if (m_pAntNotifyChar && m_pAntWriteChar) {
+            m_pAntNotifyChar->subscribe(true, [this](NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
+                this->handleAntPacket(pData, length);
+            });
+            Serial.printf("[BLE] Selected Ant BMS: Notify H:%d, Write H:%d\n",
+                          m_pAntNotifyChar->getHandle(), m_pAntWriteChar->getHandle());
+
+            m_isConnected = true;
+            m_telemetry.connected = true;
+            m_telemetry.bms_type = "Ant-BMS";
+            m_telemetry.device_name = name.length() > 0 ? name : "Ant-BMS";
+            m_telemetry.mac_address = address.toString().c_str();
+            m_telemetry.last_update = millis();
+
+            // Initial query
+            sendAntPollRequest();
+            return true;
+        } else {
+            Serial.println("[BLE] Ant candidate detected but characteristics not resolved, checking other protocols...");
+        }
+    }
+
+    // 3. Try Redodo / LiTime BMS (service 0xFFE0, Notify 0xFFE1, Write 0xFFE2/0xFFE1)
+    if (isRedodoCandidate) {
+        Serial.println("[BLE] Attempting Redodo / LiTime BMS protocol negotiation...");
+        m_pRedodoNotifyChar = nullptr;
+        m_pRedodoWriteChar = nullptr;
+
+        for (auto* s : services) {
+            for (auto* c : s->getCharacteristics(true)) {
+                String uuid = c->getUUID().toString().c_str();
+                uuid.toLowerCase();
+                if (uuid.indexOf("ffe1") >= 0) {
+                    m_pRedodoNotifyChar = c;
+                }
+                if (uuid.indexOf("ffe2") >= 0) {
+                    m_pRedodoWriteChar = c;
+                }
+            }
+        }
+
+        if (!m_pRedodoNotifyChar || !m_pRedodoWriteChar) {
+            for (auto* s : services) {
+                for (auto* c : s->getCharacteristics(true)) {
+                    if (!m_pRedodoNotifyChar && (c->canNotify() || c->canIndicate())) {
+                        m_pRedodoNotifyChar = c;
+                    }
+                    if (!m_pRedodoWriteChar && (c->canWrite() || c->canWriteNoResponse())) {
+                        m_pRedodoWriteChar = c;
+                    }
+                }
+            }
+        }
+
+        if (!m_pRedodoWriteChar && m_pRedodoNotifyChar && (m_pRedodoNotifyChar->canWrite() || m_pRedodoNotifyChar->canWriteNoResponse())) {
+            m_pRedodoWriteChar = m_pRedodoNotifyChar;
+        }
+
+        if (m_pRedodoNotifyChar && m_pRedodoWriteChar) {
+            m_pRedodoNotifyChar->subscribe(true, [this](NimBLERemoteCharacteristic* pChar, uint8_t* pData, size_t length, bool isNotify) {
+                this->handleRedodoPacket(pData, length);
+            });
+            Serial.printf("[BLE] Selected Redodo BMS: Notify H:%d, Write H:%d\n",
+                          m_pRedodoNotifyChar->getHandle(), m_pRedodoWriteChar->getHandle());
+
+            m_isConnected = true;
+            m_telemetry.connected = true;
+            m_telemetry.bms_type = "Redodo-BMS";
+            m_telemetry.device_name = name.length() > 0 ? name : "Redodo-BMS";
+            m_telemetry.mac_address = address.toString().c_str();
+            m_telemetry.last_update = millis();
+
+            // Initial query
+            sendRedodoPollRequest();
+            return true;
+        } else {
+            Serial.println("[BLE] Redodo candidate detected but characteristics not resolved, checking other protocols...");
+        }
+    }
+
+    // 4. Try JBD Service (FF00 / FFF0 / 128-bit)
+    if (pJbdService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JBD) && (!isDalyCandidate || forcedType == BMS_TYPE_JBD) && !isAntCandidate) {
         Serial.printf("[BLE] Connecting to JBD Service (%s)...\n", pJbdService->getUUID().toString().c_str());
         if (m_config.bms_pin.length() > 0) {
             Serial.printf("[BLE] Securing JBD connection with Passkey: %s\n", m_config.bms_pin.c_str());
@@ -451,8 +588,8 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
         }
     }
 
-    // 2. Try JK Service (FFE0)
-    if (pJkService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JK)) {
+    // 5. Try JK Service (FFE0)
+    if (pJkService && (forcedType == BMS_TYPE_AUTO || forcedType == BMS_TYPE_JK) && !isAntCandidate && !isRedodoCandidate) {
         Serial.println("[BLE] Found JK Service (0xFFE0)! Discovering characteristics...");
         m_pJkNotifyChar = nullptr;
         m_pJkWriteChar = nullptr;
@@ -503,7 +640,7 @@ bool BmsBleClient::connectToDevice(const NimBLEAddress& address, const String& n
         }
     }
 
-    Serial.println("[BLE] Neither Daly (0xFFF0), JBD (0xFF00/0xFFF0), nor JK (0xFFE0) characteristics were usable.");
+    Serial.println("[BLE] None of Daly, Ant, Redodo, JBD, or JK characteristics were usable.");
     disconnect();
     return false;
 }
@@ -520,6 +657,10 @@ void BmsBleClient::disconnect() {
     m_pJkWriteChar   = nullptr;
     m_pDalyNotifyChar = nullptr;
     m_pDalyWriteChar  = nullptr;
+    m_pAntNotifyChar = nullptr;
+    m_pAntWriteChar  = nullptr;
+    m_pRedodoNotifyChar = nullptr;
+    m_pRedodoWriteChar  = nullptr;
     m_rxBuffer.clear();
 }
 
@@ -1009,6 +1150,12 @@ bool BmsBleClient::setCharging(bool enable) {
         sendDalyCommand(0xDA, payload);
         m_telemetry.switch_charging = enable;
         return true;
+    } else if (m_telemetry.bms_type == "Ant-BMS") {
+        bool ok = sendAntSwitchCommand(0x01, enable ? 1 : 0);
+        if (ok) m_telemetry.switch_charging = enable;
+        return ok;
+    } else if (m_telemetry.bms_type == "Redodo-BMS") {
+        return false;
     } else {
         bool ok = writeJkRegister(29, enable ? 1 : 0, 4); // JK02 Reg 29: Charge Switch
         if (ok) m_telemetry.switch_charging = enable;
@@ -1030,6 +1177,12 @@ bool BmsBleClient::setDischarging(bool enable) {
         sendDalyCommand(0xD9, payload);
         m_telemetry.switch_discharging = enable;
         return true;
+    } else if (m_telemetry.bms_type == "Ant-BMS") {
+        bool ok = sendAntSwitchCommand(0x02, enable ? 1 : 0);
+        if (ok) m_telemetry.switch_discharging = enable;
+        return ok;
+    } else if (m_telemetry.bms_type == "Redodo-BMS") {
+        return false;
     } else {
         bool ok = writeJkRegister(30, enable ? 1 : 0, 4); // JK02 Reg 30: Discharge Switch
         if (ok) m_telemetry.switch_discharging = enable;
@@ -1038,8 +1191,12 @@ bool BmsBleClient::setDischarging(bool enable) {
 }
 
 bool BmsBleClient::setBalancer(bool enable) {
-    if (m_telemetry.bms_type == "JBD-BMS" || m_telemetry.bms_type == "Daly-BMS") {
-        return false; // JBD/Daly handles balancing autonomously
+    if (m_telemetry.bms_type == "JBD-BMS" || m_telemetry.bms_type == "Daly-BMS" || m_telemetry.bms_type == "Redodo-BMS") {
+        return false; // Autonomous balancing
+    } else if (m_telemetry.bms_type == "Ant-BMS") {
+        bool ok = sendAntSwitchCommand(0x03, enable ? 1 : 0);
+        if (ok) m_telemetry.switch_balancer = enable;
+        return ok;
     } else {
         bool ok = writeJkRegister(31, enable ? 1 : 0, 4); // JK02 Reg 31: Active Balancer Switch
         if (ok) m_telemetry.switch_balancer = enable;
@@ -1293,4 +1450,310 @@ void BmsBleClient::decodeDalyTelemetry(uint8_t cmdId, const uint8_t* data) {
         default:
             break;
     }
+}
+
+// ======================== Ant BMS Implementation ========================
+
+void BmsBleClient::sendAntPollRequest() {
+    if (!m_isConnected) return;
+    NimBLERemoteCharacteristic* writeChar = m_pAntWriteChar ? m_pAntWriteChar : m_pAntNotifyChar;
+    if (!writeChar) return;
+
+    static const uint8_t pollCmd[2] = { 0xDB, 0xDB };
+    writeChar->writeValue(pollCmd, sizeof(pollCmd), !writeChar->canWriteNoResponse());
+}
+
+bool BmsBleClient::sendAntSwitchCommand(uint8_t cmd, uint8_t state) {
+    if (!m_isConnected) return false;
+    NimBLERemoteCharacteristic* writeChar = m_pAntWriteChar ? m_pAntWriteChar : m_pAntNotifyChar;
+    if (!writeChar) return false;
+
+    // Format: 0xA5 0xA5 <cmd> <state> 0x00 0xAA
+    uint8_t frame[6] = { 0xA5, 0xA5, cmd, state, 0x00, 0xAA };
+    return writeChar->writeValue(frame, sizeof(frame), !writeChar->canWriteNoResponse());
+}
+
+void BmsBleClient::handleAntPacket(const uint8_t* data, size_t len) {
+    if (!data || len == 0) return;
+
+    m_rxBuffer.insert(m_rxBuffer.end(), data, data + len);
+
+    // Prevent buffer runaway
+    if (m_rxBuffer.size() > 512) {
+        m_rxBuffer.clear();
+        return;
+    }
+
+    // Look for Ant Legacy 140-byte frame: AA 55 AA FF
+    while (m_rxBuffer.size() >= 4) {
+        if (m_rxBuffer[0] == 0xAA && m_rxBuffer[1] == 0x55 && m_rxBuffer[2] == 0xAA && m_rxBuffer[3] == 0xFF) {
+            if (m_rxBuffer.size() < 140) {
+                // Wait for complete 140B frame
+                return;
+            }
+
+            // Verify checksum: sum of bytes 4..137
+            uint16_t calcCrc = 0;
+            for (size_t i = 4; i < 138; ++i) {
+                calcCrc += m_rxBuffer[i];
+            }
+            uint16_t expectedCrc = ((uint16_t)m_rxBuffer[138] << 8) | m_rxBuffer[139];
+
+            if (calcCrc == expectedCrc) {
+                decodeAntLegacyTelemetry(m_rxBuffer.data());
+                m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + 140);
+                continue;
+            } else {
+                Serial.printf("[ANT] Checksum mismatch (calc 0x%04X != exp 0x%04X)\n", calcCrc, expectedCrc);
+                m_rxBuffer.erase(m_rxBuffer.begin());
+            }
+        } else {
+            m_rxBuffer.erase(m_rxBuffer.begin());
+        }
+    }
+}
+
+void BmsBleClient::decodeAntLegacyTelemetry(const uint8_t* frame) {
+    if (!frame) return;
+
+    // Effective cell count (Byte 123)
+    uint8_t cells = frame[123];
+    if (cells < 1 || cells > 32) {
+        // Fallback: count non-zero cell voltages
+        cells = 0;
+        for (uint8_t i = 0; i < 32; ++i) {
+            uint16_t mv = ((uint16_t)frame[4 + i * 2] << 8) | frame[4 + i * 2 + 1];
+            if (mv > 500) cells++;
+        }
+        if (cells == 0) cells = m_config.cell_count;
+    }
+    m_telemetry.cell_count = cells;
+
+    // Cell Voltages 1..32 (bytes 4..67, mV big-endian)
+    float sumV = 0.0f;
+    float minV = 999.0f;
+    float maxV = 0.0f;
+    uint8_t minIdx = 1;
+    uint8_t maxIdx = 1;
+
+    for (uint8_t i = 0; i < cells && i < 32; ++i) {
+        uint16_t mv = ((uint16_t)frame[4 + i * 2] << 8) | frame[4 + i * 2 + 1];
+        float v = (float)mv * 0.001f;
+        m_telemetry.cell_voltages[i] = v;
+        sumV += v;
+        if (v < minV) { minV = v; minIdx = i + 1; }
+        if (v > maxV) { maxV = v; maxIdx = i + 1; }
+    }
+    for (uint8_t i = cells; i < 32; ++i) {
+        m_telemetry.cell_voltages[i] = 0.0f;
+    }
+
+    m_telemetry.total_voltage = sumV;
+    m_telemetry.min_cell_v = minV;
+    m_telemetry.max_cell_v = maxV;
+    m_telemetry.delta_cell_v = (maxV > minV) ? (maxV - minV) : 0.0f;
+    m_telemetry.min_cell_idx = minIdx;
+    m_telemetry.max_cell_idx = maxIdx;
+
+    // Current (bytes 70..73, int32 BE, unit 0.1A)
+    int32_t cur01a = (int32_t)(((uint32_t)frame[70] << 24) |
+                               ((uint32_t)frame[71] << 16) |
+                               ((uint32_t)frame[72] << 8)  |
+                               ((uint32_t)frame[73]));
+    m_telemetry.current = (float)cur01a * 0.1f;
+    m_telemetry.power = m_telemetry.total_voltage * m_telemetry.current;
+
+    // SOC (byte 74, %)
+    m_telemetry.soc = (float)frame[74];
+
+    // Total Nominal Capacity (bytes 75..78, uint32 BE, mAh)
+    uint32_t totalMah = ((uint32_t)frame[75] << 24) |
+                        ((uint32_t)frame[76] << 16) |
+                        ((uint32_t)frame[77] << 8)  |
+                        ((uint32_t)frame[78]);
+    m_telemetry.capacity_nominal = (float)totalMah * 0.001f;
+
+    // Remaining Capacity (bytes 79..82, uint32 BE, mAh)
+    uint32_t remainMah = ((uint32_t)frame[79] << 24) |
+                         ((uint32_t)frame[80] << 16) |
+                         ((uint32_t)frame[81] << 8)  |
+                         ((uint32_t)frame[82]);
+    m_telemetry.capacity_remain = (float)remainMah * 0.001f;
+
+    // Cycle Capacity (bytes 83..86, uint32 BE, mAh)
+    uint32_t cycleMah = ((uint32_t)frame[83] << 24) |
+                        ((uint32_t)frame[84] << 16) |
+                        ((uint32_t)frame[85] << 8)  |
+                        ((uint32_t)frame[86]);
+    if (totalMah > 0) {
+        m_telemetry.cycle_count = cycleMah / totalMah;
+    }
+
+    // Temperatures (°C signed int16 BE): MOS (91..92), T1 (93..94), T2 (95..96)
+    int16_t tMos = (int16_t)(((uint16_t)frame[91] << 8) | frame[92]);
+    int16_t t1   = (int16_t)(((uint16_t)frame[93] << 8) | frame[94]);
+    int16_t t2   = (int16_t)(((uint16_t)frame[95] << 8) | frame[96]);
+    m_telemetry.temp_mos     = (float)tMos;
+    m_telemetry.temp_sensor1 = (float)t1;
+    m_telemetry.temp_sensor2 = (float)t2;
+
+    // Switches
+    m_telemetry.switch_charging    = (frame[101] != 0 || frame[103] != 0);
+    m_telemetry.switch_discharging = (frame[102] != 0 || frame[104] != 0);
+    m_telemetry.switch_balancer    = (frame[105] != 0);
+    m_telemetry.balancing_active   = (frame[105] != 0);
+
+    m_telemetry.errors_str = "OK (Без помилок)";
+    m_telemetry.last_update = millis();
+}
+
+// ======================== Redodo / LiTime Implementation ========================
+
+void BmsBleClient::sendRedodoPollRequest() {
+    if (!m_isConnected) return;
+    NimBLERemoteCharacteristic* writeChar = m_pRedodoWriteChar ? m_pRedodoWriteChar : m_pRedodoNotifyChar;
+    if (!writeChar) return;
+
+    static const uint8_t pollCmd[8] = { 0x00, 0x00, 0x04, 0x01, 0x13, 0x55, 0xAA, 0x17 };
+    writeChar->writeValue(pollCmd, sizeof(pollCmd), !writeChar->canWriteNoResponse());
+}
+
+void BmsBleClient::handleRedodoPacket(const uint8_t* data, size_t len) {
+    if (!data || len == 0) return;
+
+    m_rxBuffer.insert(m_rxBuffer.end(), data, data + len);
+
+    // Prevent buffer runaway
+    if (m_rxBuffer.size() > 512) {
+        m_rxBuffer.clear();
+        return;
+    }
+
+    // Look for Redodo 105-byte frame: 00 00 61 01 93 55 AA 00
+    while (m_rxBuffer.size() >= 8) {
+        if (m_rxBuffer[0] == 0x00 && m_rxBuffer[1] == 0x00 && m_rxBuffer[2] == 0x61 && m_rxBuffer[3] == 0x01 &&
+            m_rxBuffer[4] == 0x93 && m_rxBuffer[5] == 0x55 && m_rxBuffer[6] == 0xAA) {
+            if (m_rxBuffer.size() < 105) {
+                // Wait for complete 105B frame
+                return;
+            }
+
+            // Verify checksum: sum of bytes 0..103 == frame[104]
+            uint8_t csum = 0;
+            for (size_t i = 0; i < 104; ++i) {
+                csum += m_rxBuffer[i];
+            }
+
+            if (csum == m_rxBuffer[104]) {
+                decodeRedodoTelemetry(m_rxBuffer.data());
+                m_rxBuffer.erase(m_rxBuffer.begin(), m_rxBuffer.begin() + 105);
+                continue;
+            } else {
+                Serial.printf("[REDODO] Checksum mismatch (calc 0x%02X != exp 0x%02X)\n", csum, m_rxBuffer[104]);
+                m_rxBuffer.erase(m_rxBuffer.begin());
+            }
+        } else {
+            m_rxBuffer.erase(m_rxBuffer.begin());
+        }
+    }
+}
+
+void BmsBleClient::decodeRedodoTelemetry(const uint8_t* frame) {
+    if (!frame) return;
+
+    // Terminal Voltage (Offset 8..11, uint32 LE, mV)
+    uint32_t termMv = 0;
+    memcpy(&termMv, &frame[8], 4);
+    m_telemetry.total_voltage = (float)termMv * 0.001f;
+
+    // Cell count: count valid cell voltages from Offset 16..47 (16 * uint16 LE, mV)
+    uint8_t validCells = 0;
+    for (uint8_t i = 0; i < 16; ++i) {
+        uint16_t mv = 0;
+        memcpy(&mv, &frame[16 + i * 2], 2);
+        if (mv > 500) validCells++;
+    }
+    if (validCells == 0) validCells = m_config.cell_count;
+    m_telemetry.cell_count = validCells;
+
+    float minV = 999.0f;
+    float maxV = 0.0f;
+    uint8_t minIdx = 1;
+    uint8_t maxIdx = 1;
+
+    for (uint8_t i = 0; i < validCells && i < 32; ++i) {
+        uint16_t mv = 0;
+        memcpy(&mv, &frame[16 + i * 2], 2);
+        float v = (float)mv * 0.001f;
+        m_telemetry.cell_voltages[i] = v;
+        if (v < minV) { minV = v; minIdx = i + 1; }
+        if (v > maxV) { maxV = v; maxIdx = i + 1; }
+    }
+    for (uint8_t i = validCells; i < 32; ++i) {
+        m_telemetry.cell_voltages[i] = 0.0f;
+    }
+
+    m_telemetry.min_cell_v = minV;
+    m_telemetry.max_cell_v = maxV;
+    m_telemetry.delta_cell_v = (maxV > minV) ? (maxV - minV) : 0.0f;
+    m_telemetry.min_cell_idx = minIdx;
+    m_telemetry.max_cell_idx = maxIdx;
+
+    // Current (Offset 48..51, int32 LE, mA)
+    int32_t currentMa = 0;
+    memcpy(&currentMa, &frame[48], 4);
+    m_telemetry.current = (float)currentMa * 0.001f;
+    m_telemetry.power = m_telemetry.total_voltage * m_telemetry.current;
+
+    // Temperatures in °C (Offset 52..57, 3 * int16 LE)
+    int16_t tCells = 0, tMos = 0, tAmb = 0;
+    memcpy(&tCells, &frame[52], 2);
+    memcpy(&tMos,   &frame[54], 2);
+    memcpy(&tAmb,   &frame[56], 2);
+    m_telemetry.temp_sensor1 = (float)tCells;
+    m_telemetry.temp_mos     = (float)tMos;
+    m_telemetry.temp_sensor2 = (float)tAmb;
+
+    // Cycle count (Offset 58..59, uint16 LE)
+    uint16_t cycles = 0;
+    memcpy(&cycles, &frame[58], 2);
+    m_telemetry.cycle_count = cycles;
+
+    // Remaining capacity (Offset 62..63, uint16 LE, unit 0.01 Ah)
+    uint16_t remCap001Ah = 0;
+    memcpy(&remCap001Ah, &frame[62], 2);
+    m_telemetry.capacity_remain = (float)remCap001Ah * 0.01f;
+
+    // Full capacity (Offset 64..65, uint16 LE, unit 0.01 Ah)
+    uint16_t fullCap001Ah = 0;
+    memcpy(&fullCap001Ah, &frame[64], 2);
+    m_telemetry.capacity_nominal = (float)fullCap001Ah * 0.01f;
+
+    // Protection status (Offset 66..67, uint16 LE)
+    uint16_t prot = 0;
+    memcpy(&prot, &frame[66], 2);
+    m_telemetry.raw_errors = prot;
+    if (prot != 0) {
+        m_telemetry.errors_str = "Protection: 0x" + String(prot, HEX);
+    } else {
+        m_telemetry.errors_str = "OK (Без помилок)";
+    }
+
+    // Balancing mask (Offset 68..71, uint32 LE)
+    uint32_t balMask = 0;
+    memcpy(&balMask, &frame[68], 4);
+    m_telemetry.balancing_mask = balMask;
+    m_telemetry.balancing_active = (balMask != 0);
+    m_telemetry.switch_balancer = (balMask != 0);
+
+    // Switches: default active unless protection triggered
+    m_telemetry.switch_charging = (prot == 0);
+    m_telemetry.switch_discharging = (prot == 0);
+
+    // SOC (Offset 90..91, uint16 LE, %)
+    uint16_t soc = 0;
+    memcpy(&soc, &frame[90], 2);
+    m_telemetry.soc = (float)soc;
+
+    m_telemetry.last_update = millis();
 }
