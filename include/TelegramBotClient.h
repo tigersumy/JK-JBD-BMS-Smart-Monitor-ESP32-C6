@@ -48,24 +48,60 @@ public:
     bool isEnabled() const { return m_config.enabled && m_config.bot_token.length() > 0; }
     const TelegramConfig& getConfig() const { return m_config; }
 
-    // Test send message from Web UI
-    bool sendTestNotification(String& outError) {
-        if (!isEnabled()) {
-            outError = "Telegram bot is disabled or token is empty";
+    // Test send message from Web UI (supports testing credentials directly from form)
+    bool sendTestNotification(String& outError, const String& overrideToken = "", const String& overrideChats = "") {
+        String token = overrideToken.length() > 0 ? overrideToken : m_config.bot_token;
+        String chats = overrideChats.length() > 0 ? overrideChats : m_config.chat_ids;
+        token.trim();
+        chats.trim();
+
+        if (token.length() == 0) {
+            outError = "Токен Telegram-бота порожній! Введіть токен від @BotFather.";
+            return false;
+        }
+        if (chats.length() == 0) {
+            outError = "Не вказано Telegram User ID!";
             return false;
         }
         if (WiFi.status() != WL_CONNECTED) {
-            outError = "Wi-Fi is not connected to Internet";
+            outError = "ESP32 не підключена до Wi-Fi або відсутній вихід в інтернет!";
             return false;
         }
-        String msg = "🔔 <b>Тестове сповіщення від Universal BMS Monitor!</b>\n"
-                     "ESP32-C6 успішно підключено до Telegram Bot API.\n"
+
+        String msg = "🔔 <b>Тестове сповіщення від Universal BMS Monitor!</b>\n\n"
+                     "✅ ESP32-C6 успішно підключено до Telegram Bot API.\n"
                      "Готовий до моніторингу та діагностики BMS.";
-        bool ok = broadcast(msg);
-        if (!ok) {
-            outError = "Failed to deliver message. Check Bot Token and User ID.";
+
+        bool anySuccess = false;
+        String lastErr = "";
+        int start = 0;
+        while (start < chats.length()) {
+            int sep = chats.indexOf(',', start);
+            if (sep == -1) sep = chats.indexOf(' ', start);
+            if (sep == -1) sep = chats.indexOf(';', start);
+            if (sep == -1) sep = chats.length();
+
+            String idStr = chats.substring(start, sep);
+            idStr.trim();
+            if (idStr.length() > 0) {
+                int64_t chatId = strtoll(idStr.c_str(), nullptr, 10);
+                if (chatId != 0) {
+                    String tgErr;
+                    if (sendMessage(chatId, msg, "", "HTML", token, &tgErr)) {
+                        anySuccess = true;
+                    } else {
+                        lastErr = tgErr;
+                    }
+                }
+            }
+            start = sep + 1;
         }
-        return ok;
+
+        if (!anySuccess) {
+            outError = lastErr.length() > 0 ? lastErr : "Не вдалося доставити повідомлення. Перевірте токен та User ID.";
+            return false;
+        }
+        return true;
     }
 
 private:
@@ -157,17 +193,18 @@ private:
     }
 
     // Low-level HTTPS API call to Telegram
-    String sendApiRequest(const String& method, const String& jsonPayload) {
-        if (WiFi.status() != WL_CONNECTED || m_config.bot_token.length() == 0) {
+    String sendApiRequest(const String& method, const String& jsonPayload, const String& overrideToken = "") {
+        String token = overrideToken.length() > 0 ? overrideToken : m_config.bot_token;
+        if (WiFi.status() != WL_CONNECTED || token.length() == 0) {
             return "";
         }
 
         WiFiClientSecure client;
         client.setInsecure(); // No heavy CA certificates in RAM
-        client.setTimeout(4000);
+        client.setTimeout(5000);
 
         HTTPClient http;
-        String url = "https://api.telegram.org/bot" + m_config.bot_token + "/" + method;
+        String url = "https://api.telegram.org/bot" + token + "/" + method;
         http.begin(client, url);
         http.addHeader("Content-Type", "application/json");
 
@@ -182,7 +219,7 @@ private:
         return response;
     }
 
-    bool sendMessage(int64_t chatId, const String& text, const String& replyMarkupJson = "", const String& parseMode = "HTML") {
+    bool sendMessage(int64_t chatId, const String& text, const String& replyMarkupJson = "", const String& parseMode = "HTML", const String& overrideToken = "", String* outApiError = nullptr) {
         JsonDocument doc;
         doc["chat_id"] = chatId;
         doc["text"] = text;
@@ -199,11 +236,29 @@ private:
 
         String payload;
         serializeJson(doc, payload);
-        String resp = sendApiRequest("sendMessage", payload);
+        String resp = sendApiRequest("sendMessage", payload, overrideToken);
 
         JsonDocument resDoc;
-        deserializeJson(resDoc, resp);
-        return resDoc["ok"].as<bool>();
+        DeserializationError dErr = deserializeJson(resDoc, resp);
+        if (dErr) {
+            if (outApiError) *outApiError = "Не вдалося розібрати відповідь від Telegram API.";
+            return false;
+        }
+
+        bool ok = resDoc["ok"].as<bool>();
+        if (!ok && outApiError) {
+            String desc = resDoc["description"].as<String>();
+            if (desc.indexOf("chat not found") != -1) {
+                *outApiError = "Чат не знайдено! Відкрийте в Telegram вашого бота та натисніть кнопку START (Розпочати), після чого натисніть 'Тест сповіщення' знову.";
+            } else if (desc.indexOf("Unauthorized") != -1) {
+                *outApiError = "Невірний токен бота (Unauthorized)! Перевірте правильність токена від @BotFather.";
+            } else if (desc.length() > 0) {
+                *outApiError = desc;
+            } else {
+                *outApiError = "Помилка доставки повідомлення через Telegram API.";
+            }
+        }
+        return ok;
     }
 
     bool editMessageText(int64_t chatId, int32_t messageId, const String& text, const String& replyMarkupJson = "", const String& parseMode = "HTML") {

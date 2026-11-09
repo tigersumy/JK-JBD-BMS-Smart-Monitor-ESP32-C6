@@ -331,12 +331,21 @@ void setupHttpRoutes() {
 
     // API: Test notification to verify Bot Token and User ID immediately
     server.on("/api/telegram-test", HTTP_POST, []() {
+        String token = "";
+        String chats = "";
+        if (server.hasArg("plain")) {
+            JsonDocument doc;
+            if (!deserializeJson(doc, server.arg("plain"))) {
+                if (!doc["token"].isNull()) token = doc["token"].as<String>();
+                if (!doc["chats"].isNull()) chats = doc["chats"].as<String>();
+            }
+        }
         String err;
-        bool ok = g_telegramBot.sendTestNotification(err);
+        bool ok = g_telegramBot.sendTestNotification(err, token, chats);
         JsonDocument doc;
         doc["status"] = ok ? "ok" : "error";
         if (!ok) doc["message"] = err;
-        else doc["message"] = "Test message sent to Telegram!";
+        else doc["message"] = "Тестове повідомлення успішно надіслано в Telegram!";
         String resp;
         serializeJson(doc, resp);
         server.send(ok ? 200 : 400, "application/json", resp);

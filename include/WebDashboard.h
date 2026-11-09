@@ -786,6 +786,9 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
             <label data-i18n="tg_chats_lbl">Дозволені User / Chat ID (через кому):</label>
             <input type="text" id="tg-chats" placeholder="Наприклад: 12345678, 87654321">
             <small style="color:var(--text-mut); display:block; margin-top:4px;" data-i18n="tg_chats_hint">Дізнатися свій ID можна через @userinfobot у Telegram. Тільки вказані користувачі отримають доступ до бота.</small>
+            <div style="background:rgba(210,153,34,0.15); border:1px solid rgba(210,153,34,0.4); border-radius:8px; padding:10px; margin-top:8px; font-size:0.83rem; line-height:1.4; color:#f0f6fc;" data-i18n="tg_start_reminder">
+              ⚠️ <b>Обов'язково:</b> відкрийте в Telegram вашого бота та натисніть <b>START (Розпочати)</b> перед тестом, інакше Telegram відхилить відправку!
+            </div>
           </div>
 
           <div style="display:flex; align-items:center; gap:10px; margin-top:4px;">
@@ -849,7 +852,8 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
         tg_testing: "⏳ Sending test message...",
         tg_test_ok: "✅ Test message delivered successfully!",
         tg_clearing: "Clearing...",
-        tg_cleared: "✅ Telegram credentials cleared."
+        tg_cleared: "✅ Telegram credentials cleared.",
+        tg_start_reminder: "⚠️ Mandatory: Open your bot in Telegram and press START before testing, otherwise Telegram rejects delivery!"
       },
       uk: {
         setup_title: "⚡ Налаштування Universal BMS",
@@ -882,6 +886,7 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
         tg_token_lbl: "Токен Telegram-бота (@BotFather):",
         tg_chats_lbl: "Дозволені Telegram User / Chat ID (через кому):",
         tg_chats_hint: "Дізнатися свій ID можна через @userinfobot. Тільки зазначені акаунти матимуть доступ до бота.",
+        tg_start_reminder: "⚠️ Обов'язково: відкрийте в Telegram вашого бота та натисніть START (Розпочати) перед тестом, інакше Telegram відхилить відправку!",
         tg_alerts_lbl: "Надсилати Push-сповіщення при аваріях (ΔV > 100мВ, перегрів, розряд)",
         btn_tg_test: "🔔 Тест сповіщення",
         btn_tg_clear: "🗑️ Очистити Telegram",
@@ -990,7 +995,15 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
       st.style.color = 'var(--text-mut)';
       st.textContent = t('tg_testing');
       try {
-        const res = await fetch('/api/telegram-test', { method: 'POST' });
+        const payload = {
+          token: document.getElementById('tg-token').value.trim(),
+          chats: document.getElementById('tg-chats').value.trim()
+        };
+        const res = await fetch('/api/telegram-test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
           st.style.color = 'var(--green)';
