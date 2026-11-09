@@ -43,7 +43,25 @@ Simultaneously supports 5 leading BMS protocols: **JK-BMS (JiKong)**, **JBD-BMS 
 
 * 🔘 **Hardware BOOT Button Functions (GPIO 9 on ESP32-C6)**:
   * **Short Click (< 3s)**: Forces an immediate BLE disconnection and fresh handshake without rebooting the web server or Wi-Fi.
-  * **Long Press (> 3s)**: Performs a **Factory Reset** (erases saved NVS credentials and restarts into initial Access Point mode).
+  * **Long Press (> 3s)**: Performs a **Factory Reset** (erases saved Wi-Fi & BMS credentials and restarts into initial Access Point mode, preserving Telegram credentials).
+
+* ✈️ **Embedded Telegram Bot Client (Remote Access without Tailscale / Public IP)** *(New in v1.4.0)*:
+  * **Tailscale-Free Remote Monitoring**: Operates via outbound HTTPS requests to the Telegram Bot API (`api.telegram.org:443`). Traverses home NAT, mobile cellular networks, and Starlink with zero port forwarding.
+  * **Interactive Commands & Menus**:
+    * `/status` — Battery overview: Total voltage, current (+/-), active power (W), SOC %, remaining Ah, cycles, cell imbalance $\Delta V$, temperatures, switches, and active balancing status.
+    * `/cells` — Detailed cell voltage breakdown (1–32S), minimum `Vmin 🔻`, maximum `Vmax 🔺`, active balancing cells `⚡`, and cell imbalance $\Delta V$ in mV.
+    * `/control` — Status of power switches and interactive control buttons.
+    * `/info` — ESP32-C6 hardware telemetry (Uptime, free RAM Heap, Wi-Fi RSSI, BLE link status).
+  * **BMS Switch Control with Confirmation Guard**:
+    * Toggle **Charge MOS**, **Discharge MOS**, and **Active Balancer** directly from Telegram.
+    * Mandatory interactive inline confirmation (`⚠️ Are you sure? [YES] [CANCEL]`) eliminates accidental load disconnects.
+  * **Proactive Push Alerts on Critical Events**:
+    * 🚨 **High Cell Imbalance**: $\Delta V > 100\text{ mV}$ (with auto-normalization alert when imbalance resolves).
+    * 🔥 **Overheat Alert**: MOSFET or battery pack temperature $> 55^\circ\text{C}$.
+    * 🪫 **Critical Discharge Alert**: $\text{SOC} \le 10\%$ or any cell voltage $< 2.80\text{ V}$.
+    * ⚠️ **BLE Link Loss**: Alert triggered if telemetry is interrupted for $> 45$ seconds.
+  * **Security Whitelist**: Strictly responds only to authorized User / Chat IDs (supports multiple comma-separated IDs: `12345678, 87654321`).
+  * **Non-Blocking & Memory Guarded**: Zero memory allocation when disabled. Telegram credentials remain preserved across BOOT button factory resets (dedicated Web UI button for credential wiping).
 
 ---
 
@@ -51,7 +69,7 @@ Simultaneously supports 5 leading BMS protocols: **JK-BMS (JiKong)**, **JBD-BMS 
 
 ```
 esp32c6_universal_bms_monitor/
-├── bin/                               # Pre-compiled ready-to-flash binaries (Release v1.3.0)
+├── bin/                               # Pre-compiled ready-to-flash binaries (Release v1.4.0)
 │   ├── esp32c6_universal_bms_monitor_factory.bin   # Complete factory image for ESP32-C6 (Offset 0x0000)
 │   ├── esp32c6_universal_bms_monitor_app.bin       # App firmware for ESP32-C6 (Offset 0x10000 / OTA)
 │   ├── esp32s3_universal_bms_monitor_factory.bin   # Complete factory image for ESP32-S3 (Offset 0x0000)
@@ -59,7 +77,8 @@ esp32c6_universal_bms_monitor/
 ├── include/
 │   ├── BmsBleClient.h                 # 5-in-1 Universal BLE Central client (JK, JBD, Daly, Ant, Redodo)
 │   ├── BmsProtocol.h                  # Normalized telemetry model (BmsTelemetry, 1..32S)
-│   ├── Config.h                       # NVS configuration storage manager
+│   ├── Config.h                       # NVS configuration storage manager (Wi-Fi, BMS, Telegram)
+│   ├── TelegramBotClient.h            # Non-blocking HTTPS Telegram Bot client with push alerts
 │   └── WebDashboard.h                 # Embedded HTML5/CSS3/JS Dark SPA Dashboard & Setup (UA/EN)
 ├── src/
 │   ├── BmsBleClient.cpp               # Multi-protocol parser, auto-detection engine & CRC verification
@@ -122,8 +141,10 @@ If you don't have a physical battery pack or BMS at hand, you can test every fea
 | `POST` | `/api/set-cells` | Override active cell count | `{"cells": 8}` |
 | `GET` | `/api/scan-wifi` | Scan nearby Wi-Fi networks | `[{"ssid":"Home-WiFi","rssi":-58,"secure":true}]` |
 | `GET` | `/api/scan-ble` | Discover nearby Bluetooth BMS devices | `[{"name":"JK-B2A8S20P","mac":"AA:BB:..","type":"JK-BMS","rssi":-62}]` |
-| `GET` | `/api/config` | Retrieve current saved configuration | `{"ssid":"...","mac":"...","type":0,"pin":"1234","cells":8}` |
-| `POST` | `/api/save-config` | Save new Wi-Fi and BMS settings to NVS | `{"ssid":"...","pass":"...","mac":"...","type":0,"pin":"1234","cells":8}` |
+| `GET` | `/api/config` | Retrieve current saved configuration (including Telegram) | `{"ssid":"...","mac":"...","tg_enabled":true,...}` |
+| `POST` | `/api/save-config` | Save Wi-Fi, BMS and Telegram settings to NVS | `{"ssid":"...","mac":"...","tg_enabled":true,...}` |
+| `POST` | `/api/telegram-clear` | Explicitly erase saved Telegram token and Chat IDs | `{"status":"ok"}` |
+| `POST` | `/api/telegram-test` | Dispatch a test verification message to Telegram | `{"status":"ok"}` |
 
 ### 💡 Examples: Controlling switches via `curl`:
 

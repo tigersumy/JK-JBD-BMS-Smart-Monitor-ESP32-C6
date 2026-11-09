@@ -9,6 +9,7 @@
 
 #include "Config.h"
 #include "BmsBleClient.h"
+#include "TelegramBotClient.h"
 #include "WebDashboard.h"
 
 // DNS Server for Captive Portal
@@ -21,6 +22,7 @@ static WebServer server(80);
 // Global objects
 static AppConfig g_config;
 static BmsBleClient g_bleClient;
+static TelegramBotClient g_telegramBot;
 
 static bool g_isApMode = false;
 static uint32_t g_lastBleLoop = 0;
@@ -161,6 +163,8 @@ void setupHttpRoutes() {
         doc["heap_free"] = ESP.getFreeHeap() / 1024;
         doc["wifi_rssi"] = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
         doc["ip"] = g_isApMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
+        doc["tg_enabled"] = g_telegramBot.isEnabled();
+        doc["tg_connected"] = (g_telegramBot.isEnabled() && WiFi.status() == WL_CONNECTED);
 
         String response;
         serializeJson(doc, response);
@@ -255,6 +259,15 @@ void setupHttpRoutes() {
         doc["pin"] = g_config.bms_pin;
         doc["cells"] = g_config.cell_count;
 
+        TelegramConfig tg = ConfigManager::loadTelegram();
+        doc["tg_enabled"] = tg.enabled;
+        doc["tg_token"] = tg.bot_token;
+        doc["tg_chats"] = tg.chat_ids;
+        doc["tg_alerts"] = tg.alerts_enabled;
+        doc["tg_delta_mv"] = tg.alert_delta_mv;
+        doc["tg_temp_c"] = tg.alert_temp_c;
+        doc["tg_low_soc"] = tg.alert_low_soc;
+
         String response;
         serializeJson(doc, response);
         server.send(200, "application/json", response);
@@ -287,6 +300,18 @@ void setupHttpRoutes() {
         ConfigManager::save(g_config);
         g_bleClient.setTargetConfig(g_config);
 
+        // Telegram Bot Config
+        TelegramConfig tg = ConfigManager::loadTelegram();
+        if (!doc["tg_enabled"].isNull()) tg.enabled = doc["tg_enabled"].as<bool>();
+        if (!doc["tg_token"].isNull()) tg.bot_token = doc["tg_token"].as<String>();
+        if (!doc["tg_chats"].isNull()) tg.chat_ids = doc["tg_chats"].as<String>();
+        if (!doc["tg_alerts"].isNull()) tg.alerts_enabled = doc["tg_alerts"].as<bool>();
+        if (!doc["tg_delta_mv"].isNull()) tg.alert_delta_mv = doc["tg_delta_mv"].as<uint16_t>();
+        if (!doc["tg_temp_c"].isNull()) tg.alert_temp_c = doc["tg_temp_c"].as<int8_t>();
+        if (!doc["tg_low_soc"].isNull()) tg.alert_low_soc = doc["tg_low_soc"].as<uint8_t>();
+        ConfigManager::saveTelegram(tg);
+        g_telegramBot.reloadConfig();
+
         server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Saved. Applying...\"}");
         delay(500);
 
@@ -295,6 +320,26 @@ void setupHttpRoutes() {
         Serial.println("[Config] New settings saved. Restarting ESP32...");
         delay(500);
         ESP.restart();
+    });
+
+    // API: Dedicated endpoint to clear Telegram credentials without erasing BMS/Wi-Fi
+    server.on("/api/telegram-clear", HTTP_POST, []() {
+        ConfigManager::clearTelegram();
+        g_telegramBot.reloadConfig();
+        server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Telegram credentials cleared\"}");
+    });
+
+    // API: Test notification to verify Bot Token and User ID immediately
+    server.on("/api/telegram-test", HTTP_POST, []() {
+        String err;
+        bool ok = g_telegramBot.sendTestNotification(err);
+        JsonDocument doc;
+        doc["status"] = ok ? "ok" : "error";
+        if (!ok) doc["message"] = err;
+        else doc["message"] = "Test message sent to Telegram!";
+        String resp;
+        serializeJson(doc, resp);
+        server.send(ok ? 200 : 400, "application/json", resp);
     });
 
     // OTA Firmware Update
@@ -350,11 +395,10 @@ void handleButton() {
                 s_factoryResetTriggered = true;
                 Serial.println("\n=======================================================");
                 Serial.println("  [Button] LONG PRESS (>3s) -> FACTORY RESET TRIGGERED! ");
-                Serial.println("  Erasing all NVS settings and restarting to AP mode... ");
+                Serial.println("  Erasing Wi-Fi & BMS settings (preserving Telegram config)... ");
                 Serial.println("=======================================================\n");
 
-                nvs_flash_erase();
-                nvs_flash_init();
+                ConfigManager::clearAppConfig();
 
                 AppConfig blankCfg;
                 ConfigManager::save(blankCfg);
@@ -405,8 +449,11 @@ void setup() {
     setupWifi();
     setupHttpRoutes();
 
-    // Start BLE background FreeRTOS task so WebServer is NEVER blocked by BLE
-    xTaskCreate(bleWorkerTask, "ble_worker", 8192, NULL, 1, NULL);
+    // Start BLE background FreeRTOS task with higher priority (2) so RF radio prioritizes BMS packets
+    xTaskCreate(bleWorkerTask, "ble_worker", 8192, NULL, 2, NULL);
+
+    // Start Telegram Bot background FreeRTOS task (Priority 1 - lower priority, non-blocking)
+    g_telegramBot.init(&g_bleClient);
 
     Serial.println("[System] Initialization complete. BOOT button: Short click = Reconnect BLE, Long click (>3s) = Factory Reset.");
 }

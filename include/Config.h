@@ -23,6 +23,16 @@ struct AppConfig {
     uint8_t cell_count = 8;            // 4, 8, 16, 24
 };
 
+struct TelegramConfig {
+    bool enabled           = false;    // Default: disabled (optional component)
+    String bot_token       = "";       // Telegram Bot Token (e.g. 123456789:ABCdefGhI...)
+    String chat_ids        = "";       // Authorized User/Chat IDs (comma-separated: 12345678, 87654321)
+    bool alerts_enabled    = true;     // Send proactive alerts on critical conditions
+    uint16_t alert_delta_mv = 100;     // Cell imbalance threshold (mV)
+    int8_t alert_temp_c    = 55;       // Overheat threshold (°C)
+    uint8_t alert_low_soc  = 10;       // Critical discharge SOC threshold (%)
+};
+
 class ConfigManager {
 public:
     static AppConfig load() {
@@ -60,6 +70,53 @@ public:
         prefs.putUChar("type", cfg.bms_type);
         prefs.putString("pin", cfg.bms_pin);
         prefs.putUChar("cells", cfg.cell_count);
+        prefs.end();
+    }
+
+    // Factory reset: clears only Wi-Fi and BMS settings in 'bms_mon' namespace.
+    // Preserves Telegram configuration in 'bms_tg' namespace intact!
+    static void clearAppConfig() {
+        Preferences prefs;
+        prefs.begin("bms_mon", false);
+        prefs.clear();
+        prefs.end();
+    }
+
+    // Telegram configuration management in dedicated 'bms_tg' namespace
+    static TelegramConfig loadTelegram() {
+        TelegramConfig tg;
+        Preferences prefs;
+        if (prefs.begin("bms_tg", true)) {
+            tg.enabled          = prefs.getBool("en", false);
+            tg.bot_token        = prefs.getString("token", "");
+            tg.chat_ids         = prefs.getString("chats", "");
+            tg.alerts_enabled   = prefs.getBool("alerts", true);
+            tg.alert_delta_mv   = prefs.getUShort("dmv", 100);
+            tg.alert_temp_c     = (int8_t)prefs.getChar("tc", 55);
+            tg.alert_low_soc    = prefs.getUChar("lsoc", 10);
+            prefs.end();
+        }
+        return tg;
+    }
+
+    static void saveTelegram(const TelegramConfig& tg) {
+        Preferences prefs;
+        prefs.begin("bms_tg", false);
+        prefs.putBool("en", tg.enabled);
+        prefs.putString("token", tg.bot_token);
+        prefs.putString("chats", tg.chat_ids);
+        prefs.putBool("alerts", tg.alerts_enabled);
+        prefs.putUShort("dmv", tg.alert_delta_mv);
+        prefs.putChar("tc", tg.alert_temp_c);
+        prefs.putUChar("lsoc", tg.alert_low_soc);
+        prefs.end();
+    }
+
+    // Dedicated button / action to explicitly clear Telegram credentials
+    static void clearTelegram() {
+        Preferences prefs;
+        prefs.begin("bms_tg", false);
+        prefs.clear();
         prefs.end();
     }
 };

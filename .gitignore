@@ -4,3 +4,6 @@
 *.iws
 *.swp
 .DS_Store
+*.zip
+*.pdf
+

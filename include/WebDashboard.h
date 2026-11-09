@@ -130,6 +130,7 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
       </div>
       <div class="header-actions">
         <span class="bms-tag" id="bms-type-badge">Auto / Unknown</span>
+        <span class="bms-tag" id="tg-badge" style="display:none; font-size:0.75rem; padding:3px 8px; border-radius:6px; font-weight:600; background:rgba(57,197,187,0.15); color:var(--accent-cyan); border-color:rgba(57,197,187,0.3);">✈️ TG Bot</span>
         <button type="button" class="btn-lang" id="btn-lang" onclick="toggleLang()">🌐 EN</button>
         <div style="display:flex; align-items:center; gap:6px;">
           <select id="cell-select" onchange="changeCells(this.value)" style="background:rgba(22,27,34,0.9); color:var(--accent-blue); border:1px solid var(--card-border); padding:6px 10px; border-radius:8px; font-size:0.85rem; font-weight:600; cursor:pointer; outline:none;">
@@ -420,6 +421,26 @@ static const char INDEX_HTML[] PROGMEM = R"rawliteral(
         dot.className = 'dot';
         stText.textContent = t('st_searching');
         bmsTag.textContent = data.bms_type || 'Auto / Unknown';
+      }
+
+      const tgBadge = document.getElementById('tg-badge');
+      if (tgBadge) {
+        if (data.tg_enabled) {
+          tgBadge.style.display = 'inline-block';
+          if (data.tg_connected) {
+            tgBadge.textContent = '✈️ TG Online';
+            tgBadge.style.background = 'rgba(63,185,80,0.15)';
+            tgBadge.style.color = 'var(--accent-green)';
+            tgBadge.style.borderColor = 'rgba(63,185,80,0.3)';
+          } else {
+            tgBadge.textContent = '✈️ TG Standby';
+            tgBadge.style.background = 'rgba(210,153,34,0.15)';
+            tgBadge.style.color = 'var(--accent-orange)';
+            tgBadge.style.borderColor = 'rgba(210,153,34,0.3)';
+          }
+        } else {
+          tgBadge.style.display = 'none';
+        }
       }
 
       document.getElementById('kpi-total-v').textContent = (data.total_voltage || 0.0).toFixed(2) + ' V';
@@ -739,6 +760,47 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
         </select>
       </div>
 
+      <!-- Telegram Bot Configuration (Optional Remote Access) -->
+      <div style="border-top:1px solid #30363d; margin:20px 0 16px 0; padding-top:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <h3 style="font-size:1.05rem; display:flex; align-items:center; gap:8px;" data-i18n="tg_sec_title">
+            <span>✈️ Telegram Bot Client</span>
+          </h3>
+          <span class="badge" style="background:rgba(57,197,187,0.15); color:var(--accent,#58a6ff);" data-i18n="opt_badge">Optional</span>
+        </div>
+        <p class="sub" style="margin-bottom:14px;" data-i18n="tg_sub">Віддалений моніторинг, сповіщення про аварії та керування ключами через Telegram без Tailscale.</p>
+
+        <!-- Checkbox: Enable Telegram -->
+        <div class="field-group" style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+          <input type="checkbox" id="tg-enabled" style="width:18px; height:18px; cursor:pointer;" onchange="toggleTgFields()">
+          <label for="tg-enabled" style="margin-bottom:0; cursor:pointer; font-weight:600;" data-i18n="tg_enable_lbl">Увімкнути клієнта Telegram-бота</label>
+        </div>
+
+        <div id="tg-details-box" style="display:none; flex-direction:column; gap:12px; background:#0d1117; border:1px solid #30363d; border-radius:10px; padding:14px; margin-bottom:12px;">
+          <div>
+            <label data-i18n="tg_token_lbl">Telegram Bot Token (@BotFather):</label>
+            <input type="text" id="tg-token" placeholder="Наприклад: 123456789:ABCdefGhIJKlmNoPQRstuVWXyz">
+          </div>
+
+          <div>
+            <label data-i18n="tg_chats_lbl">Дозволені User / Chat ID (через кому):</label>
+            <input type="text" id="tg-chats" placeholder="Наприклад: 12345678, 87654321">
+            <small style="color:var(--text-mut); display:block; margin-top:4px;" data-i18n="tg_chats_hint">Дізнатися свій ID можна через @userinfobot у Telegram. Тільки вказані користувачі отримають доступ до бота.</small>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px; margin-top:4px;">
+            <input type="checkbox" id="tg-alerts" checked style="width:18px; height:18px; cursor:pointer;">
+            <label for="tg-alerts" style="margin-bottom:0; cursor:pointer;" data-i18n="tg_alerts_lbl">Надсилати Push-сповіщення при аваріях (ΔV > 100мВ, перегрів, розряд)</label>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button type="button" class="btn" id="btn-tg-test" onclick="testTelegram()" style="background:#1f6feb; border-color:#388bfd; flex:1;" data-i18n="btn_tg_test">🔔 Тест сповіщення</button>
+            <button type="button" class="btn" id="btn-tg-clear" onclick="clearTelegramCredentials()" style="background:rgba(248,81,73,0.15); border-color:#f85149; color:#f85149;" data-i18n="btn_tg_clear">🗑️ Очистити Telegram</button>
+          </div>
+          <div id="tg-test-status" style="font-size:0.85rem; margin-top:4px; display:none;"></div>
+        </div>
+      </div>
+
       <button type="submit" class="btn btn-primary" id="btn-submit" data-i18n="btn_save">💾 Save & Connect</button>
     </form>
 
@@ -772,7 +834,22 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
         btn_save: "💾 Save & Connect",
         btn_saving: "Saving...",
         btn_scanning: "⏳ Scanning...",
-        alert_saved: "✅ Configuration saved! ESP32-C6 is applying settings and connecting to Wi-Fi. Dashboard: http://bms-monitor.local"
+        alert_saved: "✅ Configuration saved! ESP32-C6 is applying settings and connecting to Wi-Fi. Dashboard: http://bms-monitor.local",
+        tg_sec_title: "✈️ Telegram Bot Client",
+        opt_badge: "Optional",
+        tg_sub: "Remote diagnostics, proactive alerts and switch control via Telegram without Tailscale.",
+        tg_enable_lbl: "Enable Telegram Bot Client",
+        tg_token_lbl: "Telegram Bot Token (@BotFather):",
+        tg_chats_lbl: "Authorized User / Chat IDs (comma-separated):",
+        tg_chats_hint: "Find your ID with @userinfobot. Only these IDs can access and control the BMS.",
+        tg_alerts_lbl: "Send proactive alerts on critical events (ΔV > 100mV, overheat, low SOC)",
+        btn_tg_test: "🔔 Test Message",
+        btn_tg_clear: "🗑️ Clear Telegram",
+        confirm_tg_clear: "Are you sure you want to completely erase Telegram Bot Token and User IDs?",
+        tg_testing: "⏳ Sending test message...",
+        tg_test_ok: "✅ Test message delivered successfully!",
+        tg_clearing: "Clearing...",
+        tg_cleared: "✅ Telegram credentials cleared."
       },
       uk: {
         setup_title: "⚡ Налаштування Universal BMS",
@@ -797,7 +874,22 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
         btn_save: "💾 Зберегти та підключитися",
         btn_saving: "Збереження...",
         btn_scanning: "⏳ Пошук...",
-        alert_saved: "✅ Налаштування збережено! Пристрій застосовує конфігурацію та підключається до Wi-Fi. Панель: http://bms-monitor.local"
+        alert_saved: "✅ Налаштування збережено! Пристрій застосовує конфігурацію та підключається до Wi-Fi. Панель: http://bms-monitor.local",
+        tg_sec_title: "✈️ Клієнт Telegram-бота",
+        opt_badge: "Опціонально",
+        tg_sub: "Віддалена діагностика, сповіщення про аварії та керування ключами через Telegram без Tailscale.",
+        tg_enable_lbl: "Увімкнути клієнта Telegram-бота",
+        tg_token_lbl: "Токен Telegram-бота (@BotFather):",
+        tg_chats_lbl: "Дозволені Telegram User / Chat ID (через кому):",
+        tg_chats_hint: "Дізнатися свій ID можна через @userinfobot. Тільки зазначені акаунти матимуть доступ до бота.",
+        tg_alerts_lbl: "Надсилати Push-сповіщення при аваріях (ΔV > 100мВ, перегрів, розряд)",
+        btn_tg_test: "🔔 Тест сповіщення",
+        btn_tg_clear: "🗑️ Очистити Telegram",
+        confirm_tg_clear: "Ви дійсно бажаєте повністю видалити токен та User ID Telegram-бота?",
+        tg_testing: "⏳ Відправка тестового повідомлення...",
+        tg_test_ok: "✅ Тестове повідомлення успішно надіслано в Telegram!",
+        tg_clearing: "Очищення...",
+        tg_cleared: "✅ Налаштування Telegram успішно очищено."
       }
     };
 
@@ -884,6 +976,57 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
       btn.disabled = false;
     }
 
+    function toggleTgFields() {
+      const en = document.getElementById('tg-enabled').checked;
+      const box = document.getElementById('tg-details-box');
+      if (box) box.style.display = en ? 'flex' : 'none';
+    }
+
+    async function testTelegram() {
+      const btn = document.getElementById('btn-tg-test');
+      const st = document.getElementById('tg-test-status');
+      btn.disabled = true;
+      st.style.display = 'block';
+      st.style.color = 'var(--text-mut)';
+      st.textContent = t('tg_testing');
+      try {
+        const res = await fetch('/api/telegram-test', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.status === 'ok') {
+          st.style.color = 'var(--green)';
+          st.textContent = t('tg_test_ok');
+        } else {
+          st.style.color = '#f85149';
+          st.textContent = '❌ ' + (data.message || 'Error sending test message');
+        }
+      } catch(e) {
+        st.style.color = '#f85149';
+        st.textContent = '❌ Error: ' + e;
+      }
+      btn.disabled = false;
+    }
+
+    async function clearTelegramCredentials() {
+      if (!confirm(t('confirm_tg_clear'))) return;
+      const btn = document.getElementById('btn-tg-clear');
+      btn.disabled = true;
+      btn.textContent = t('tg_clearing');
+      try {
+        const res = await fetch('/api/telegram-clear', { method: 'POST' });
+        if (res.ok) {
+          document.getElementById('tg-token').value = '';
+          document.getElementById('tg-chats').value = '';
+          document.getElementById('tg-enabled').checked = false;
+          toggleTgFields();
+          alert(t('tg_cleared'));
+        }
+      } catch(e) {
+        alert('Error: ' + e);
+      }
+      btn.disabled = false;
+      btn.textContent = t('btn_tg_clear');
+    }
+
     document.getElementById('setup-form').onsubmit = async (e) => {
       e.preventDefault();
       const payload = {
@@ -892,7 +1035,11 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
         mac: document.getElementById('bms-mac').value.trim(),
         type: parseInt(document.getElementById('bms-type').value),
         pin: document.getElementById('bms-pin').value.trim(),
-        cells: parseInt(document.getElementById('cell-count').value)
+        cells: parseInt(document.getElementById('cell-count').value),
+        tg_enabled: document.getElementById('tg-enabled').checked,
+        tg_token: document.getElementById('tg-token').value.trim(),
+        tg_chats: document.getElementById('tg-chats').value.trim(),
+        tg_alerts: document.getElementById('tg-alerts').checked
       };
 
       const btnSub = document.getElementById('btn-submit');
@@ -927,6 +1074,14 @@ static const char SETUP_HTML[] PROGMEM = R"rawliteral(
           if (cfg.type !== undefined) document.getElementById('bms-type').value = cfg.type;
           if (cfg.pin) document.getElementById('bms-pin').value = cfg.pin;
           if (cfg.cells) document.getElementById('cell-count').value = cfg.cells;
+
+          if (cfg.tg_enabled !== undefined) {
+            document.getElementById('tg-enabled').checked = cfg.tg_enabled;
+            toggleTgFields();
+          }
+          if (cfg.tg_token) document.getElementById('tg-token').value = cfg.tg_token;
+          if (cfg.tg_chats) document.getElementById('tg-chats').value = cfg.tg_chats;
+          if (cfg.tg_alerts !== undefined) document.getElementById('tg-alerts').checked = cfg.tg_alerts;
         }
       } catch(e) {}
     }
