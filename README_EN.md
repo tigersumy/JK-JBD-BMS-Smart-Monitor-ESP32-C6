@@ -270,6 +270,139 @@ pio device monitor -b 115200
 
 ---
 
+## ✈️ Telegram Bot Setup & Configuration Guide
+
+The embedded Telegram Bot client enables full battery telemetry monitoring, instant critical emergency alerts, and safe BMS switch controls from anywhere in the world **without requiring a public/static IP, port forwarding, dynamic DNS, or VPN/Tailscale configurations**.
+
+```
+┌──────────────┐         HTTPS (Port 443)         ┌─────────────────────┐
+│   ESP32-C6   │ ───────────────────────────────> │ Telegram Bot API    │
+│ (BMS Monitor)│ <─────────────────────────────── │ (api.telegram.org)  │
+└──────────────┘         Long-Polling Updates     └──────────┬──────────┘
+                                                             │
+                                                             ▼
+                                                  ┌─────────────────────┐
+                                                  │  Your Smartphone/PC │
+                                                  │  (Telegram Client)  │
+                                                  └─────────────────────┘
+```
+
+### Step 1. Create Your Telegram Bot
+1. Open Telegram and search for the official bot creator: [**@BotFather**](https://t.me/BotFather).
+2. Click **Start** and send the command:
+   ```text
+   /newbot
+   ```
+3. Enter a display name for your bot (e.g., `My Home Battery Monitor`).
+4. Choose a unique username ending in `bot` (e.g., `my_home_battery_bms_bot`).
+5. `@BotFather` will reply with congratulations and your unique **HTTP API Token**:
+   ```text
+   1234567890:ABCdefGHIjklMNOpqrSTUvwxYZ_1234567
+   ```
+   *Keep this token safe — you will enter it into the monitor's web configuration.*
+
+---
+
+### Step 2. Retrieve Your Numeric Telegram User ID
+Telegram safeguards user privacy and requires a unique **numeric Account ID** (not your public `@username`) for bots to address outbound messages.
+
+1. Open [**@userinfobot**](https://t.me/userinfobot) or [**@myidbot**](https://t.me/myidbot) in Telegram.
+2. Click **Start** (or send `/start` or `/getid`).
+3. The bot will print your profile attributes. Copy the numeric value from the **Id** field:
+   ```text
+   Id: 123456789
+   ```
+> [!TIP]
+> **Multi-Administrator Whitelist**:
+> To authorize multiple family members or system administrators, provide a comma-separated list of User IDs:
+> `123456789, 987654321`
+
+---
+
+### Step 3. ⚠️ CRITICAL REQUIREMENT: Initial Bot Launch (Starting the Chat)
+> [!IMPORTANT]
+> **Why is this step mandatory?**  
+> Under Telegram's strict anti-spam privacy policy, a bot **cannot initiate a conversation or push messages to a user** until the user has opened a chat with the bot and pressed **START**.  
+> If you enter your Bot Token and User ID into the monitor web interface without first initiating the chat in Telegram, Telegram will reject messages with:  
+> `Bad Request: chat not found (User has not clicked START in the chat with this bot yet)`.
+
+1. In Telegram, search for your newly created bot username (or open direct link `https://t.me/<your_bot_username>`).
+2. Click the prominent **START** button at the bottom of the chat window (or send the text command `/start`).
+3. Telegram now associates your User ID with the bot's conversation pool, enabling outbound notifications, interactive menus, and push alerts!
+
+---
+
+### Step 4. Configure the Monitor Web Interface
+1. In your browser, open the monitor's setup dashboard: **`http://bms-monitor.local/setup`** (or `http://192.168.4.1/setup`).
+2. Scroll to the **✈️ Telegram Bot Client** section.
+3. Check **☑️ Enable Telegram Bot Client**.
+4. Paste your token into **Telegram Bot Token (@BotFather)**.
+5. Paste your numeric ID(s) into **Allowed Telegram User / Chat IDs**.
+6. Check **☑️ Send Emergency Push Alerts (ΔV > 100mV, Overheat, Low SOC)**.
+7. Click the **🔔 Test Notification** button:
+   * The ESP32-C6 performs an immediate end-to-end verification handshake with Telegram servers.
+   * Upon successful delivery, your Telegram app will instantly receive:
+     ```text
+     🔔 Test notification from Universal BMS Monitor ESP32-C6!
+     Connection successful. Telegram Bot is online and ready.
+     ```
+   * A green confirmation message `✅ Test notification delivered successfully!` will appear in the web interface.
+8. Click **💾 Save Configuration**. Once saved, the web header displays the **`✈️ TG Online`** status badge.
+
+---
+
+### Step 5. Telegram Bot Commands & Remote Management
+
+The bot provides real-time diagnostic commands with inline keyboard buttons:
+
+| Command | Description & Output |
+|---|---|
+| `/status` | **Full Battery Telemetry Report**: Total Pack Voltage (V), Battery Current with directional indicator (🟢 Charging / 🔴 Discharging / ⚪ Idle), Active Power (W), State of Charge (SOC%), Remaining Capacity (Ah), Cycle Count, Max Imbalance ($\Delta V$ in mV), MOSFET and Battery Temperatures, and live states of Charge MOS, Discharge MOS, and Balancer. |
+| `/cells` | **Detailed Cell Voltage Matrix (1–32S)**: Individual cell voltages with 1 mV precision, automatic markers for minimum (`Vmin 🔻`), maximum (`Vmax 🔺`), active balancing markers (`⚡`), and total pack $\Delta V$. |
+| `/control` | **MOSFET Power Switches & Balancer Remote**: Sends an interactive control keyboard for managing charging/discharging pathways and balancing. |
+| `/info` | **Hardware & Connectivity Diagnostics**: ESP32-C6 Uptime, free RAM Heap, Wi-Fi RSSI signal strength, BLE link status, and firmware version. |
+| `/help` | Detailed command manual and usage reference. |
+
+#### 🛡️ Confirmation Guard for Power Switches
+To eliminate accidental power interruptions or unexpected inverter shutdowns, every switch operation requires explicit confirmation:
+
+1. Pressing, for example, `[⛔ Turn OFF Discharge]` displays:
+   ```text
+   ⚠️ ATTENTION! Are you sure you want to turn OFF Discharge MOS?
+   This will immediately disconnect the battery load output!
+   [✅ YES, TURN OFF]  [❌ CANCEL]
+   ```
+2. The BMS command executes **only** when the user taps `[✅ YES]`.
+3. Tapping `[❌ CANCEL]` safely aborts the operation.
+
+---
+
+### Step 6. Proactive Emergency Push Alerts
+
+When push alerts are enabled, the ESP32-C6 monitors telemetry 24/7 and dispatches instant priority notifications:
+
+* 🚨 **High Cell Imbalance ($\Delta V > 100\text{ mV}$)**:
+  * Triggers an immediate alert specifying the exact minimum and maximum cell voltages.
+  * Sends an automatic resolution notice when balancing normalizes the delta ($\Delta V < 80\text{ mV}$).
+* 🔥 **Overheat Warning ($T > 55^\circ\text{C}$)**:
+  * Immediate notification if power MOSFET or battery probe temperatures exceed safe thresholds.
+* 🪫 **Critical Low Battery ($\text{SOC} \le 10\%$ or $V_{\text{cell}} < 2.80\text{ V}$)**:
+  * Alerts before deep discharge cut-off occurs, reporting remaining capacity and the weakest cell voltage.
+* ⚠️ **BMS Bluetooth Link Interruption**:
+  * Triggers if BLE communication ceases for longer than 45 seconds.
+
+---
+
+### Step 7. Non-Volatile Memory Guard (NVS Guard)
+
+* **Isolated Flash Storage**:
+  * Bot credentials (Token, User IDs, and active state) are stored within an isolated NVS namespace (`bms_tg`).
+  * If you perform a factory reset of Wi-Fi / BMS settings by holding the hardware **BOOT** button (> 3 sec), **Telegram credentials remain securely preserved**.
+* **Complete Removal**:
+  * To permanently delete stored Telegram credentials from flash (e.g. before transferring the device), open `/setup` and click **[🗑️ Clear Telegram]**.
+
+---
+
 ## 📄 License
 
 This project is open-source and licensed under the permissive **MIT License**.
